@@ -1221,6 +1221,57 @@ TEST("composer: @ lists people and @channel & co.; a pick is a pill that sends t
     CHECK_STR(c.pickList()->item(0).subtitle, "Notify everyone in this channel");
 }
 
+TEST("composer: @ puts the people talking here first, and lists user groups") {
+    Harness        h;
+    auto          &c      = h.composer();
+    const ConvRef  design = h.conv("C0DESIGN");
+    // The newest message's author (not me) leads the people.
+    model::UserRef latest = model::kNoUser;
+    for (const model::Message &m : h.store.conversation(design).messages)
+        if (m.user != model::kNoUser && m.user != h.store.me)
+            latest = m.user;
+    REQUIRE(latest != model::kNoUser);
+    c.edit().focus();
+    c.edit().insertText("@");
+    pump();
+    shell::PickList *p = c.pickList();
+    REQUIRE(p != nullptr);
+    size_t first = 0;
+    while (first < p->count() && p->item(first).kind != shell::PickList::Item::Kind::Mention)
+        ++first;
+    REQUIRE(first < p->count());
+    CHECK_STR(p->item(first).title, "@" + std::string(h.store.user(latest).label()));
+    // A user group: by its handle or its name, sent as <!subteam^…>.
+    model::Store::Usergroup g;
+    g.id     = "S0DESIGN";
+    g.handle = "design-team";
+    g.name   = "Design team";
+    h.store.setUsergroups({g});
+    c.edit().clear();
+    c.edit().insertText("@design");
+    pump();
+    p = c.pickList();
+    REQUIRE(p != nullptr);
+    size_t at = p->count();
+    for (size_t i = 0; i < p->count(); ++i)
+        if (p->item(i).kind == shell::PickList::Item::Kind::Group)
+            at = i;
+    REQUIRE(at < p->count());
+    CHECK_STR(p->item(at).title, "@design-team");
+    CHECK_STR(p->item(at).subtitle, "Design team");
+    c.edit().clear();
+    c.edit().insertText("@team");
+    pump();
+    p = c.pickList();
+    REQUIRE(p != nullptr);
+    REQUIRE(p->item(p->count() - 1).kind == shell::PickList::Item::Kind::Group);
+    p->select(int(p->count() - 1));
+    p->confirm();
+    pump();
+    CHECK_STR(c.edit().text(), "@design-team ");
+    CHECK_STR(c.mrkdwn(), "<!subteam^S0DESIGN> ");
+}
+
 TEST("composer: # lists channels, : completes emoji") {
     Harness h;
     auto   &c = h.composer();

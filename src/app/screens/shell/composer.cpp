@@ -714,6 +714,30 @@ GlyphButton *Composer::button(shortcuts::Id id) const {
     return nullptr;
 }
 
+namespace {
+
+// The authors of a conversation's latest messages, newest first, each once
+// (at most 30): a thread's replies before the channel's, without me.
+std::vector<model::UserRef>
+recentAuthors(const model::Store &st, model::ConvRef conv, model::Ts thread) {
+    std::vector<model::UserRef> out;
+    if (conv == model::kNoConv)
+        return out;
+    auto take = [&](const std::vector<model::Message> &msgs) {
+        for (auto it = msgs.rbegin(); it != msgs.rend() && out.size() < 30; ++it)
+            if (it->user != model::kNoUser && it->user != st.me && it->user < st.userCount() &&
+                std::find(out.begin(), out.end(), it->user) == out.end())
+                out.push_back(it->user);
+    };
+    if (thread)
+        if (const std::vector<model::Message> *r = st.replies(conv, thread))
+            take(*r);
+    take(st.conversation(conv).messages);
+    return out;
+}
+
+} // namespace
+
 void Composer::refreshTips() {
     // The send key follows the Ctrl+Enter option; the GIF tip whether a
     // GIPHY key is set.
@@ -2201,7 +2225,18 @@ void Composer::computePickList() {
         }
         if (_folded.size() < st.userCount())
             _folded.resize(st.userCount());
-        for (model::UserRef u = 0; u < st.userCount() && added < 50; ++u) {
+        // Who is talking here comes first, the latest first (the thread's
+        // people before the channel's), as in Slack; then everyone else.
+        std::vector<model::UserRef> order = recentAuthors(st, _key.conv, _key.thread);
+        std::vector<char>           seen(st.userCount(), 0);
+        for (model::UserRef u : order)
+            seen[u] = 1;
+        for (model::UserRef u = 0; u < st.userCount(); ++u)
+            if (!seen[u])
+                order.push_back(u);
+        for (model::UserRef u : order) {
+            if (added >= 50)
+                break;
             const model::User &user = st.user(u);
             if (user.placeholder || user.deleted)
                 continue;
@@ -2243,6 +2278,22 @@ void Composer::computePickList() {
             it.presence = user.dnd ? 3 : (user.active || user.bot) ? 1 : 2;
             items.push_back(std::move(it));
             ++added;
+        }
+        // User groups (@design-team): Slack notifies their members.
+        for (const model::Store::Usergroup &g : st.usergroups()) {
+            if (g.handle.empty())
+                continue;
+            const std::string handle = "@" + g.handle;
+            if (!query.empty() && !utf8::containsFolded(handle, query) &&
+                !utf8::containsFolded(g.name, query))
+                continue;
+            PickList::Item it;
+            it.kind     = PickList::Item::Kind::Group;
+            it.title    = handle;
+            it.display  = handle;
+            it.insert   = str::concat({"<!subteam^", g.id, ">"});
+            it.subtitle = g.name;
+            items.push_back(std::move(it));
         }
     } else if (trig == '/' && start == 0) {
         // Slash commands only at the very start of the message; a bare
