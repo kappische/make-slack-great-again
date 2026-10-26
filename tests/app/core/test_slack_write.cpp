@@ -986,6 +986,52 @@ TEST("slack write: canvases — look-up, meta, content, create, edit one change 
     CHECK_STR(Log().get("conversations.canvases.create")["form"]["channel_id"].str(), "C1");
 }
 
+TEST("slack write: a tracked download reports its progress and can be stopped") {
+    if (!haveServer())
+        return;
+    const char       *t = std::getenv("TMPDIR");
+    const std::string dir =
+        file::join(t && *t ? t : "/tmp", "msga-test-tracked-" + std::to_string(getpid()));
+    REQUIRE(file::makeDirs(dir));
+    const std::string to = file::join(dir, "video.bin");
+    {
+        Env                                      e;
+        Result                                   r;
+        std::vector<std::pair<int64_t, int64_t>> seen;
+        e.be->downloadFileTracked(
+            server() + "/files-pri/T1-F1/video.bin",
+            to,
+            [&](int64_t got, int64_t total) { seen.emplace_back(got, total); },
+            r.cb()
+        );
+        REQUIRE(pumpUntil([&] { return r.called; }));
+        CHECK(r.ok);
+        REQUIRE(!seen.empty()); // the bytes as they came, before done
+        CHECK(seen.back().first == 1024);
+        CHECK(seen.back().second == 1024); // the Content-Length
+        CHECK(file::size(to) == 1024);
+        // Stopped before the answer (stopped at once, in the same turn): done
+        // says so then, and never again.
+        Result                stopped;
+        std::function<void()> stop = e.be->downloadFileTracked(
+            server() + "/files-pri/T1-F2/slow.bin",
+            file::join(dir, "slow.bin"),
+            nullptr,
+            stopped.cb()
+        );
+        REQUIRE(stop);
+        stop();
+        CHECK(stopped.called);
+        CHECK_FALSE(stopped.ok);
+        CHECK_STR(stopped.err, "cancelled");
+        stop(); // twice: nothing
+        pumpFor(50);
+        CHECK_FALSE(file::exists(file::join(dir, "slow.bin")));
+    }
+    file::remove(to);
+    file::remove(dir);
+}
+
 TEST("slack write: downloadFile fetches with the workspace's credentials, writes off-thread") {
     if (!haveServer())
         return;
