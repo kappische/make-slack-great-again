@@ -217,21 +217,28 @@ public:
     void reply(Ts ts);
 
     // ── Internal (rows): state the rows read and the actions they take ─────
-    void               applySelection(MessageRow &row) const;
-    bool               threadOpen(Ts root) const; // its reply bar says "Close thread"
-    bool               inlineOpen(Ts root) const { return has(_inlineThreads, root); }
-    void               replyBarClicked(Ts root);
+    void applySelection(MessageRow &row) const;
+    bool threadOpen(Ts root) const; // its reply bar says "Close thread"
+    bool inlineOpen(Ts root) const { return has(_inlineThreads, root); }
+    void replyBarClicked(Ts root);
     // Link previews off (Settings), or dismissed with the "×".
-    bool               attachmentHidden(const model::Message &m, size_t index) const;
-    void               dismissAttachment(Ts ts, size_t index);
+    bool attachmentHidden(const model::Message &m, size_t index) const;
+    void dismissAttachment(Ts ts, size_t index);
     // Own message on a backend with Capabilities::removePreview: the "×"
     // removes the preview for everyone, else it only hides it here.
-    bool               removesPreviewServerSide(const model::Message &m) const;
-    bool               imageCollapsed(Ts ts, int attachment, int block) const;
-    void               toggleImage(Ts ts, int attachment, int block);
-    bool               unfurlExpanded(Ts ts, int attachment) const;
-    void               toggleUnfurl(Ts ts, int attachment);
-    void               openFileViewer(Ts ts, const std::string &path);
+    bool removesPreviewServerSide(const model::Message &m) const;
+    bool imageCollapsed(Ts ts, int attachment, int block) const;
+    void toggleImage(Ts ts, int attachment, int block);
+    bool unfurlExpanded(Ts ts, int attachment) const;
+    void toggleUnfurl(Ts ts, int attachment);
+    void openFileViewer(Ts ts, const std::string &path);
+    // The file viewer's arrows: the picture (an image, a PDF's page) `step`
+    // after (ts, path) in the list's order (-1: before) — a message's own
+    // files first, then its shared messages' — or false at either end or
+    // when (ts, path) is no longer in the list.
+    bool viewerNeighbour(
+        Ts ts, const std::string &path, int step, Ts *nextTs, const model::File **next
+    ) const;
     void               openHtmlFile(const model::File &f);
     void               openCanvas(const model::File &f);
     // A canvas card's preview HTML (null while loading, *state -1 if it
