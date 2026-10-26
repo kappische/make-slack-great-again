@@ -3977,3 +3977,141 @@ TEST(
     link->activate();       // openTranscript -> TranscriptDialog::open -> setText -> setBody
     e.ctx.window = e.win.get();
 }
+
+TEST("viewer: Left / Right step through the list's pictures in place, stopping at the ends") {
+    Env           e(false);
+    const int64_t t0  = base::nowSecs() - 3600;
+    auto          pic = [](const char *id, const char *name, const char *file) {
+        model::File f;
+        f.id     = id;
+        f.name   = name;
+        f.mime   = "image/png";
+        f.path   = asset(file);
+        f.width  = 256;
+        f.height = 160;
+        return f;
+    };
+    std::vector<model::Message> ms;
+    model::Message              a = msg(0, t0, "two pictures");
+    a.extras().files.push_back(pic("F1", "one.png", "images/blog-hero.png"));
+    a.extras().files.push_back(pic("F2", "two.png", "images/palette-v3.png"));
+    ms.push_back(std::move(a));
+    ms.push_back(msg(0, t0 + 60, "no pictures here"));
+    model::Message b = msg(0, t0 + 120, "a PDF and a zip");
+    model::File    zip;
+    zip.id   = "FZIP";
+    zip.name = "bundle.zip";
+    zip.mime = "application/zip";
+    zip.path = "/nowhere/bundle.zip";
+    b.extras().files.push_back(zip); // not a picture: skipped
+    model::File pdf = pic("FPDF", "three.pdf", "images/atlas-dashboard.png");
+    pdf.mime        = "application/pdf";
+    pdf.thumb       = pdf.path;
+    pdf.path        = "/nowhere/three.pdf";
+    b.extras().files.push_back(pdf);
+    ms.push_back(std::move(b));
+    e.list->showConversation(addConv(e.store, std::move(ms)));
+    pump(8);
+    const Ts first = t0 * 1000000, last = (t0 + 120) * 1000000;
+
+    e.list->openFileViewer(first, asset("images/palette-v3.png"));
+    pump(2);
+    ui::Popup *viewer = e.win->topPopup();
+    REQUIRE(viewer != nullptr);
+    ui::View *prev = findByTooltip(viewer, "Previous");
+    ui::View *next = findByTooltip(viewer, "Next");
+    REQUIRE(prev != nullptr);
+    REQUIRE(next != nullptr);
+    CHECK(findNamed(viewer, "two.png") != nullptr);
+    CHECK(prev->visible());
+    CHECK(next->visible());
+
+    // Right: over the message without pictures and the zip, onto the PDF.
+    ui::Event right = key(plat::Key::Right, 0);
+    viewer->onEvent(right);
+    pump(2);
+    CHECK(e.win->topPopup() == viewer); // the same viewer, rebound
+    CHECK(findNamed(viewer, "three.pdf") != nullptr);
+    CHECK(findNamed(viewer, "two.png") == nullptr);
+    CHECK_FALSE(next->visible());
+    viewer->onEvent(right); // the end: nothing happens
+    CHECK(findNamed(viewer, "three.pdf") != nullptr);
+
+    Ts                 t = 0;
+    const model::File *n = nullptr;
+    CHECK(e.list->viewerNeighbour(last, "/nowhere/three.pdf", -1, &t, &n));
+    CHECK(t == first);
+    CHECK_STR(n->name, "two.png");
+
+    // Left twice: back to the first picture, whose Previous is hidden.
+    ui::Event left = key(plat::Key::Left, 0);
+    viewer->onEvent(left);
+    viewer->onEvent(left);
+    pump(2);
+    CHECK(findNamed(viewer, "one.png") != nullptr);
+    CHECK_FALSE(prev->visible());
+    CHECK(next->visible());
+    // A chord is not a step: it is left to the shortcuts.
+    ui::Event altRight = key(plat::Key::Right, plat::ModAlt);
+    viewer->onEvent(altRight);
+    CHECK(findNamed(viewer, "one.png") != nullptr);
+    // Num Lock doesn't stop it.
+    ui::Event numRight = key(plat::Key::Right, plat::ModNum);
+    viewer->onEvent(numRight);
+    CHECK(findNamed(viewer, "two.png") != nullptr);
+    viewer->close();
+    pump(2);
+}
+
+TEST("viewer: a video shows its poster; Play opens it in the OS player, downloaded once") {
+    Env                      e(false);
+    std::vector<std::string> opened;
+    e.ctx.openUrl    = [&](const std::string &u) { opened.push_back(u); };
+    const int64_t t0 = base::nowSecs() - 3600;
+    model::File   v;
+    v.id         = "FVID";
+    v.name       = "clip"; // no extension: the MIME type gives it one
+    v.mime       = "video/mp4";
+    v.path       = "https://files.video.test/clip.mp4";
+    v.original   = "https://files.video.test/images/blog-hero.png"; // DownloadingBackend: an asset
+    v.thumb      = asset("images/blog-hero.png");
+    v.width      = 320;
+    v.height     = 180;
+    v.durationMs = 65000;
+    model::Message m = msg(0, t0, "a clip");
+    m.extras().files.push_back(v);
+    std::vector<model::Message> ms;
+    ms.push_back(std::move(m));
+    e.list->showConversation(addConv(e.store, std::move(ms)));
+    pump(8);
+    const Ts ts = t0 * 1000000;
+    REQUIRE(e.row(ts) != nullptr);
+    pump(20); // the poster decoded, for the dump
+    dump(e, "video-row");
+
+    e.list->openFileViewer(ts, v.path);
+    pump(2);
+    ui::Popup *viewer = e.win->topPopup();
+    REQUIRE(viewer != nullptr);
+    ui::View *play = findByTooltip(viewer, "Play");
+    REQUIRE(play != nullptr);
+    CHECK(play->visible());
+    pump(20);
+    dump(e, "video-viewer");
+    ui::Event enter = key(plat::Key::Enter, 0);
+    viewer->onEvent(enter);
+    REQUIRE(until([&] { return !opened.empty(); }));
+    REQUIRE(e.backend.asked.size() == 1);
+    CHECK_STR(e.backend.asked[0].url, v.original); // the upload, not the poster
+    CHECK(str::startsWith(opened[0], "file://"));
+    CHECK(str::endsWith(opened[0], "/FVID-clip.mp4"));
+    CHECK(file::size(e.backend.asked[0].to) > 0);
+    // Again: from the cache, no second download.
+    viewer->onEvent(enter);
+    REQUIRE(until([&] { return opened.size() == 2; }));
+    CHECK(e.backend.asked.size() == 1);
+    CHECK_STR(opened[1], opened[0]);
+    file::remove(e.backend.asked[0].to);
+    viewer->close();
+    pump(2);
+}

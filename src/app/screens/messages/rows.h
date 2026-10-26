@@ -17,6 +17,10 @@ namespace screens {
 
 enum RowKind : int { kRowFull, kRowGrouped, kRowDay, kRowSystem, kRowDivider };
 
+// A picture shown inline (a canvas is a card): an image or a PDF's page,
+// opened in the file viewer.
+bool isInlinePreview(const model::File &f);
+
 // Children laid out left to right, wrapping onto new lines (reaction pills).
 class FlowRow : public ui::View {
 public:

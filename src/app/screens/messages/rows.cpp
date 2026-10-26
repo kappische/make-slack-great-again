@@ -96,6 +96,18 @@ public:
         return {std::floor(_dw * s), std::floor(_dh * s)};
     }
     void setTs(Ts ts) { _ts = ts; }
+    // A video's poster: a play disc in the middle and, when known, the
+    // length in a pill at the bottom left. The viewer plays it.
+    void setVideo(int64_t durationMs) {
+        _video      = true;
+        _durationMs = durationMs;
+        setLoadingText({}, C::FormTextFaint); // the disc marks the spot meanwhile
+    }
+    void paint(gfx::Painter &p) override {
+        CachedImage::paint(p);
+        if (_video)
+            paintVideoBadge(p);
+    }
     // A gallery tile: the placeholder is clipped to the rounded tile
     // and has no "Loading image…" (a tile is too narrow for it).
     void setTile() {
@@ -143,19 +155,59 @@ protected:
     }
 
 private:
-    MessageList &_list;
-    std::string  _path;
-    Ts           _ts; // the message (0: no file menu)
-    int          _w, _h;
-    float        _dw, _dh;
-    bool         _file;
-    bool         _tile = false;
-};
+    // Black at 60% under white: legible over any frame.
+    void paintVideoBadge(gfx::Painter &p) {
+        const ui::RectF b    = bounds();
+        const float     disc = std::min({48.f, b.w - 8, b.h - 8});
+        if (disc < 16)
+            return;
+        const ui::RectF d{
+            snapPx(b.x + (b.w - disc) / 2), snapPx(b.y + (b.h - disc) / 2), disc, disc
+        };
+        p.fillRoundRect(d, disc / 2, 0x99000000U);
+        const float g = std::floor(disc * 0.42f);
+        // The triangle's centroid sits right of its box's centre: nudged left.
+        gfx::drawIcon(
+            p,
+            gfx::Icon::Play,
+            {snapPx(d.x + (disc - g) / 2 + g * 0.08f), snapPx(d.y + (disc - g) / 2), g, g},
+            0xffffffffU
+        );
+        if (_durationMs <= 0)
+            return;
+        const float k = windowScale();
+        if (!_duration || _durationAt != k) {
+            text::AttributedText t;
+            t.append(
+                formatDuration(_durationMs, true), ui::pxFont(12, text::Weight::Bold, 0xffffffffU)
+            );
+            text::LayoutOptions o;
+            o.maxLines  = 1;
+            _duration   = text::Layout::build(std::move(t), o, k);
+            _durationAt = k;
+        }
+        const float     w = std::ceil(_duration->width()) + 12, h = 20;
+        const ui::RectF pill{b.x + 8, b.y + b.h - 8 - h, w, h};
+        if (pill.w > b.w - 16 || pill.y < d.y + disc)
+            return; // too small a tile for it
+        p.fillRoundRect(pill, h / 2, 0x99000000U);
+        _duration->paint(
+            p, snapPx(ui::PointF{pill.x + 6, pill.y + (h - std::floor(_duration->height())) / 2})
+        );
+    }
 
-// A picture shown inline (a canvas is a card).
-bool isInlinePreview(const model::File &f) {
-    return f.hasPreview() && !(f.isCanvas() && !f.id.empty());
-}
+    MessageList                  &_list;
+    std::string                   _path;
+    Ts                            _ts; // the message (0: no file menu)
+    int                           _w, _h;
+    float                         _dw, _dh;
+    bool                          _file;
+    bool                          _tile       = false;
+    bool                          _video      = false;
+    int64_t                       _durationMs = 0;
+    std::unique_ptr<text::Layout> _duration; // "1:05", shaped once per scale
+    float                         _durationAt = 0;
+};
 
 // The multi-image gallery (2+ previews): equal
 // cover-cropped tiles 180 px high in rows of up to three (two for four
@@ -410,6 +462,10 @@ std::string huddleDuration(int64_t secs) {
 }
 
 } // namespace
+
+bool isInlinePreview(const model::File &f) {
+    return f.hasPreview() && !(f.isCanvas() && !f.id.empty());
+}
 
 // Who is (or was) in the huddle and for how long —
 // "You" first, then the others in Slack's order, more than three cut to two
@@ -1455,6 +1511,8 @@ void MessageRow::buildGallery(ui::View *col, const std::vector<const model::File
         );
         t->setShape(ImageCache::Shape::Rounded, 8);
         t->setTile();
+        if (f->isVideo())
+            t->setVideo(f->durationMs);
         const Ts          msg  = _ts;
         const std::string path = f->path;
         t->key                 = path;
@@ -1483,6 +1541,8 @@ void MessageRow::buildFile(ui::View *col, const model::File &f, Ts ts) {
         const std::string path = f.path;
         img->key               = path;
         img->setTs(ts);
+        if (f.isVideo())
+            img->setVideo(f.durationMs);
         img->onOpen = [this, msg, path] { _list.openFileViewer(msg, path); };
         return;
     }

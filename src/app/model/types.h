@@ -103,7 +103,8 @@ struct File {
     std::string transcript;    // voice clips: Slack's preview line
     std::string transcriptVtt; // …and its WebVTT (an auth download); "" = none
     // A non-image file's prerendered picture (a PDF's first page, Slack's
-    // thumb_pdf): shown and opened like an image; width/height are its size.
+    // thumb_pdf; a video's poster frame, thumb_video): shown and opened like
+    // an image; width/height are its size.
     std::string thumb;
     // A canvas's display title (Slack: the file's title, emoji and mentions
     // kept); "" = the name.
@@ -115,11 +116,14 @@ struct File {
     bool isImage() const { return mime.compare(0, 6, "image/") == 0 && width > 0; }
     bool isAudio() const { return mime.compare(0, 6, "audio/") == 0 || subtype == "slack_audio"; }
     bool isPdf() const { return mime == "application/pdf"; }
-    // A picture to show inline (an image, a PDF's page).
-    bool hasPreview() const { return isImage() || (isPdf() && !thumb.empty() && width > 0); }
+    bool isVideo() const { return mime.compare(0, 6, "video/") == 0; }
+    // A picture to show inline (an image, a PDF's page, a video's poster).
+    bool hasPreview() const {
+        return isImage() || ((isPdf() || isVideo()) && !thumb.empty() && width > 0);
+    }
     // Slack canvases (quip docs): a preview card, opened in the canvas viewer.
-    bool isCanvas() const { return mime == "application/vnd.slack-docs"; }
-    bool isHtml() const;
+    bool               isCanvas() const { return mime == "application/vnd.slack-docs"; }
+    bool               isHtml() const;
     const std::string &source() const { return original.empty() ? path : original; }
     bool               operator==(const File &) const;
 };

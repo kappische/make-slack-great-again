@@ -144,6 +144,10 @@ public:
 // The file viewer: the near-opaque viewer backdrop over the whole
 // window, a 56-px bar with the file's name (1.05×, onDark) and round 36-px
 // icon buttons, the picture centred below it, scaled to fit, never up.
+// Left / Right (and the round chevrons at the sides) step to the list's
+// previous / next picture in place (MessageList::viewerNeighbour). A video
+// shows its poster under a play button (or Enter / Space, or a click on it)
+// that opens it in the OS's player.
 class FileViewer final : public ui::Popup {
 public:
     FileViewer(Context &ctx, MessageList *list, Ts ts, const model::File &f)
@@ -157,57 +161,44 @@ public:
             .padding(24, 0, 24 - 8, 0)
             .spacing(ui::metric(ui::M::SpaceXS))
             .items(ui::Align::Center);
-        auto *name = ui::styledLabel(
-            _bar,
-            f.name,
-            ui::pxFont(15 * 1.05f, text::Weight::Regular, ui::color(C::TooltipText)),
-            1
-        );
-        name->style().flex(1);
-        const model::Message *m       = list ? list->message(ts) : nullptr;
-        // A pending message has no actions yet (the file bar's rule).
-        const bool            actions = list && m && !m->pending;
-        auto                  button  = [&](gfx::Icon icon, const char *tip, bool on) {
-            auto *b = _bar->add<ViewerButton>(icon, tr(tip));
-            b->setVisible(on);
-            return b;
+        _name = _bar->add<ui::Label>();
+        _name->setMaxLines(1);
+        _name->style().flex(1);
+        auto button = [&](gfx::Icon icon, const char *tip) {
+            return _bar->add<ViewerButton>(icon, tr(tip));
         };
-        button(gfx::Icon::Download, N_("Download"), actions)->onClick = [this] {
-            _list->downloadFile(_ts, _file.path);
-        };
-        // A shared message's file is only viewed: forwarding sends the message's own.
-        const bool forward = actions && bool(ctx.forwardMessage) && fileAt(m, f.path);
-        button(gfx::Icon::Share2, N_("Forward"), forward)->onClick = [this] {
+        _download          = button(gfx::Icon::Download, N_("Download"));
+        _download->onClick = [this] { _list->downloadFile(_ts, _file.path); };
+        _forward           = button(gfx::Icon::Share2, N_("Forward"));
+        _forward->onClick  = [this] {
             close(); // the forward dialog replaces the viewer
             if (_ctx.forwardMessage)
                 _ctx.forwardMessage(_list->conversation(), _ts, _file.path);
         };
-        button(
-            gfx::Icon::ExternalLink,
-            N_("Open in browser"),
-            actions && !(f.permalink.empty() && f.path.empty())
-        )
-            ->onClick = [this] {
+        _browser          = button(gfx::Icon::ExternalLink, N_("Open in browser"));
+        _browser->onClick = [this] {
             if (_ctx.openUrl)
                 _ctx.openUrl(fileUrl(_file.permalink.empty() ? _file.path : _file.permalink));
         };
-        auto *more    = button(gfx::Icon::MoreHorizontal, N_("More actions"), actions);
-        more->onClick = [this, more] {
-            const ui::RectF r = more->windowRect();
+        _more          = button(gfx::Icon::MoreHorizontal, N_("More actions"));
+        _more->onClick = [this] {
+            const ui::RectF r = _more->windowRect();
             _list->openFileMenu(_ts, _file.path, {r.x, r.y + r.h + 2});
         };
-        button(gfx::Icon::X, N_("Close"), true)->onClick = [this] { close(); };
-        // The thumbnail at once, the original over it once it is in (an
-        // image's; a PDF shows its rendered page only).
-        const std::string &shown                         = f.isImage() ? f.path : f.thumb;
-        _thumb = add<CachedImage>(ctx.images, shown, ImageCache::Shape::Square);
+        button(gfx::Icon::X, N_("Close"))->onClick = [this] { close(); };
+        _thumb = add<CachedImage>(ctx.images, std::string(), ImageCache::Shape::Square);
         _thumb->setPlaceholder(C::None);
-        _thumb->setLoadingText(tr("Loading image\xE2\x80\xA6"), C::OnDarkDim);
-        _thumb->setAnimated(isGifPath(shown));
-        if (f.isImage() && f.source() != f.path) {
-            _full = add<CachedImage>(ctx.images, f.source(), ImageCache::Shape::Square);
-            _full->setPlaceholder(C::None);
+        _full = add<CachedImage>(ctx.images, std::string(), ImageCache::Shape::Square);
+        _full->setPlaceholder(C::None);
+        _play          = add<PlayButton>();
+        _play->onClick = [this] { play(); };
+        if (list) {
+            _prev          = add<NavButton>(gfx::Icon::ChevronLeft, tr("Previous"));
+            _prev->onClick = [this] { step(-1); };
+            _next          = add<NavButton>(gfx::Icon::ChevronRight, tr("Next"));
+            _next->onClick = [this] { step(1); };
         }
+        bind();
         setFocusable(true);
     }
     void layout() override {
@@ -215,26 +206,50 @@ public:
         _bar->setFrame({0, 0, w, kBarH});
         const ui::RectF r = imageRect();
         _thumb->setFrame(r);
-        if (_full)
-            _full->setFrame(r);
+        _full->setFrame(r);
+        _play->setFrame(
+            {std::floor(r.x + (r.w - kPlay) / 2), std::floor(r.y + (r.h - kPlay) / 2), kPlay, kPlay}
+        );
+        if (_list) {
+            const float y = std::floor(kBarH + (height() - kBarH - kNav) / 2);
+            _prev->setFrame({kMargin, y, kNav, kNav});
+            _next->setFrame({w - kMargin - kNav, y, kNav, kNav});
+        }
     }
     void paint(gfx::Painter &p) override { p.fillRect(bounds(), ui::color(C::ViewerBackdrop)); }
     bool onEvent(ui::Event &e) override {
         if (e.type == ui::EventType::PointerDown) {
             // The backdrop closes it; the picture and the bar don't.
-            if (e.button == plat::Button::Left && e.pos.y > kBarH && !imageRect().contains(e.pos))
-                close();
+            if (e.button == plat::Button::Left && e.pos.y > kBarH) {
+                if (!imageRect().contains(e.pos))
+                    close();
+                else if (_play->visible())
+                    play();
+            }
+            return true;
+        }
+        constexpr uint32_t kChord = plat::ModShift | plat::ModCtrl | plat::ModAlt | plat::ModSuper;
+        if (e.type == ui::EventType::KeyDown && !(e.mods & kChord) &&
+            (e.key == plat::Key::Left || e.key == plat::Key::Right)) {
+            step(e.key == plat::Key::Left ? -1 : 1);
+            return true;
+        }
+        if (e.type == ui::EventType::KeyDown && !(e.mods & kChord) && _play->visible() &&
+            (e.key == plat::Key::Enter || e.key == plat::Key::KpEnter ||
+             e.key == plat::Key::Space)) {
+            play();
             return true;
         }
         return Popup::onEvent(e); // Escape
     }
 
 private:
-    static constexpr float kBarH = 56, kMargin = 24;
+    static constexpr float kBarH = 56, kMargin = 24, kNav = 44, kPlay = 72;
     // A round button on the dark bar: 20-px onDark icon, a white wash on hover.
-    class ViewerButton final : public IconButton {
+    class ViewerButton : public IconButton {
     public:
-        ViewerButton(gfx::Icon icon, std::string tip) : IconButton(icon, 20, C::TooltipText) {
+        ViewerButton(gfx::Icon icon, std::string tip, float px = 20)
+            : IconButton(icon, px, C::TooltipText) {
             style().size(36, 36).noShrink();
             setTooltip(std::move(tip));
             setFocusable(false);
@@ -242,13 +257,101 @@ private:
         }
         void paint(gfx::Painter &p) override {
             if (hovered())
-                p.fillRoundRect(bounds(), 18, 0x26ffffffU);
+                p.fillRoundRect(bounds(), height() / 2, 0x26ffffffU);
             paintIcon(p);
         }
     };
+    // Previous / next at the sides, over the backdrop: a faint white disc
+    // always (they must be found over any picture), stronger on hover.
+    class NavButton final : public ViewerButton {
+    public:
+        NavButton(gfx::Icon icon, std::string tip) : ViewerButton(icon, std::move(tip), 24) {}
+        void paint(gfx::Painter &p) override {
+            p.fillRoundRect(bounds(), height() / 2, hovered() ? 0x40ffffffU : 0x1affffffU);
+            paintIcon(p);
+        }
+    };
+
+    // A video's play button: white on a dark disc, legible over any frame.
+    class PlayButton final : public ViewerButton {
+    public:
+        PlayButton() : ViewerButton(gfx::Icon::Play, tr("Play"), 30) { style().size(kPlay, kPlay); }
+        void paint(gfx::Painter &p) override {
+            p.fillRoundRect(bounds(), height() / 2, hovered() ? 0xcc000000U : 0x99000000U);
+            paintIcon(p);
+        }
+    };
+
+    // The bar and the picture for (_ts, _file); the arrows for its neighbours.
+    void bind() {
+        const model::File    &f       = _file;
+        const model::Message *m       = _list ? _list->message(_ts) : nullptr;
+        // A pending message has no actions yet (the file bar's rule).
+        const bool            actions = _list && m && !m->pending;
+        text::AttributedText  name;
+        name.append(
+            f.name, ui::pxFont(15 * 1.05f, text::Weight::Regular, ui::color(C::TooltipText))
+        );
+        _name->setRichText(std::move(name));
+        _download->setVisible(actions);
+        // A shared message's file is only viewed: forwarding sends the message's own.
+        _forward->setVisible(actions && bool(_ctx.forwardMessage) && fileAt(m, f.path));
+        _browser->setVisible(actions && !(f.permalink.empty() && f.path.empty()));
+        _more->setVisible(actions);
+        // The thumbnail at once, the original over it once it is in (an
+        // image's; a PDF shows its rendered page only).
+        const std::string &shown = f.isImage() ? f.path : f.thumb;
+        _thumb->setPath(shown);
+        _thumb->setAnimated(isGifPath(shown));
+        // A video's play button stands in for "Loading image…".
+        _thumb->setLoadingText(
+            f.isVideo() ? std::string() : tr("Loading image\xE2\x80\xA6"), C::OnDarkDim
+        );
+        const bool full = f.isImage() && f.source() != f.path;
+        _full->setPath(full ? f.source() : std::string());
+        _full->setVisible(full);
+        _play->setVisible(f.isVideo() && _list);
+        if (_list) {
+            Ts                 t = 0;
+            const model::File *n = nullptr;
+            _prev->setVisible(_list->viewerNeighbour(_ts, f.path, -1, &t, &n));
+            if (_prev->visible())
+                prefetch(*n);
+            _next->setVisible(_list->viewerNeighbour(_ts, f.path, 1, &t, &n));
+            if (_next->visible())
+                prefetch(*n);
+        }
+        invalidateLayout();
+        update();
+    }
+    void play() {
+        if (_list)
+            _list->playVideo(_file);
+    }
+    void step(int dir) {
+        Ts                 t = 0;
+        const model::File *n = nullptr;
+        if (!_list || !_list->viewerNeighbour(_ts, _file.path, dir, &t, &n))
+            return;
+        _ts   = t;
+        _file = *n; // copied: the message may change under the viewer
+        bind();
+    }
+    // A neighbour's picture onto the disk while this one is looked at, so
+    // the step to it shows it at once.
+    void prefetch(const model::File &f) {
+        if (!_ctx.remote)
+            return;
+        const std::string &src = f.isImage() ? f.source() : f.thumb;
+        if (RemoteImages::isRemote(src) && _ctx.remote->cachedPath(src).empty() &&
+            !_ctx.remote->failedRecently(src))
+            _ctx.remote->fetch(src, [](const std::string &) {});
+    }
     ui::RectF imageRect() const {
+        // With arrows, the picture keeps clear of them.
+        const float     side = _list ? kMargin + kNav + 12 : kMargin;
         const ui::RectF avail{
-            kMargin, kBarH + kMargin / 2, width() - 2 * kMargin, height() - kBarH - kMargin * 1.5f
+            side, kBarH + kMargin / 2, width() - 2 * side, height() - kBarH - kMargin * 1.5f
         };
         if (avail.w <= 0 || avail.h <= 0)
             return {};
@@ -266,12 +369,16 @@ private:
         };
     }
 
-    Context     &_ctx;
-    MessageList *_list;
-    Ts           _ts;
-    model::File  _file;
-    ui::View    *_bar   = nullptr;
-    CachedImage *_thumb = nullptr, *_full = nullptr;
+    Context      &_ctx;
+    MessageList  *_list;
+    Ts            _ts;
+    model::File   _file;
+    ui::View     *_bar      = nullptr;
+    ui::Label    *_name     = nullptr;
+    ViewerButton *_download = nullptr, *_forward = nullptr, *_browser = nullptr, *_more = nullptr;
+    NavButton    *_prev = nullptr, *_next = nullptr;
+    PlayButton   *_play  = nullptr;
+    CachedImage  *_thumb = nullptr, *_full = nullptr;
 };
 
 // A label's text in window coordinates, not clipped by the list: in a message
@@ -2595,6 +2702,39 @@ void MessageList::openFileViewer(Ts ts, const std::string &path) {
         showFileViewer(_ctx, *window(), this, ts, *f);
 }
 
+bool MessageList::viewerNeighbour(
+    Ts ts, const std::string &path, int step, Ts *nextTs, const model::File **next
+) const {
+    // In the order the rows show them (MessageRow::buildContent); a fresh
+    // walk on every step, so messages that came or went meanwhile count.
+    std::vector<std::pair<Ts, const model::File *>> seq;
+    int                                             at  = -1;
+    auto                                            add = [&](Ts t, const model::File &f) {
+        if (!isInlinePreview(f))
+            return;
+        if (t == ts && f.path == path)
+            at = int(seq.size());
+        seq.emplace_back(t, &f);
+    };
+    for (const Item &it : _items) {
+        const model::Message *m = it.kind == Kind::Message ? message(it.ts) : nullptr;
+        if (!m)
+            continue;
+        for (const model::File &f : m->files())
+            add(m->ts, f);
+        for (size_t i = 0; i < m->attachments().size(); ++i)
+            if (!attachmentHidden(*m, i))
+                for (const model::File &f : m->attachments()[i].files)
+                    add(m->ts, f);
+    }
+    const int i = at + step;
+    if (at < 0 || i < 0 || i >= int(seq.size()))
+        return false;
+    *nextTs = seq[size_t(i)].first;
+    *next   = seq[size_t(i)].second;
+    return true;
+}
+
 void MessageList::openCanvas(const model::File &f) {
     if (_ctx.openCanvas)
         _ctx.openCanvas(_conv, f);
@@ -2645,28 +2785,53 @@ const std::string *MessageList::canvasPreview(const std::string &id, int *state)
     return nullptr;
 }
 
-void MessageList::openHtmlFile(const model::File &f) {
-    // The page itself in the browser, not Slack's file
-    // page (which only offers a download). url_private needs credentials:
-    // fetched once to the cache, the browser gets the local copy.
-    if (!RemoteImages::isRemote(f.path)) { // a pending upload, a demo file
-        if (_ctx.openUrl)
-            _ctx.openUrl(fileUrl(f.path));
-        return;
-    }
-    std::string name(file::baseName(f.name));
-    for (char &c : name)
+namespace {
+// A file name that is safe in any OS's directory.
+std::string safeFileName(std::string_view name) {
+    std::string out(file::baseName(name));
+    for (char &c : out)
         if (std::strchr("\\/:*?\"<>|", c))
             c = '_';
+    return out;
+}
+} // namespace
+
+void MessageList::openHtmlFile(const model::File &f) {
+    // The page itself in the browser, not Slack's file
+    // page (which only offers a download).
+    std::string name = safeFileName(f.name);
     if (mime::fromName(name) != "text/html")
         name += ".html";
+    openLocalCopy(f, f.path, std::move(name));
+}
+
+void MessageList::playVideo(const model::File &f) {
+    // The original upload (a thumb is only the poster), under a name whose
+    // extension says what it is: the OS picks the player by it.
+    std::string name = safeFileName(f.name.empty() ? std::string(tr("video")) : f.name);
+    if (!str::startsWith(mime::fromName(name), "video/")) {
+        const std::string_view ext = mime::extension(f.mime);
+        if (!ext.empty())
+            name = str::concat({name, ".", ext});
+    }
+    openLocalCopy(f, f.source(), std::move(name));
+}
+
+void MessageList::openLocalCopy(const model::File &f, const std::string &source, std::string name) {
+    // url_private needs credentials: fetched once to the cache, the app
+    // gets the local copy.
+    if (!RemoteImages::isRemote(source)) { // a pending upload, a demo file
+        if (_ctx.openUrl)
+            _ctx.openUrl(fileUrl(source));
+        return;
+    }
     const std::string cache = identity::cacheDir(_ctx.app.platform());
     if (cache.empty())
         return;
-    const std::string path   = file::join(cache, "files/" + f.id + "-" + name);
-    Context          &ctx    = _ctx; // outlives the list; the download may outlive it
-    auto              have   = std::make_shared<bool>(false);
-    const std::string source = f.path, fallback = f.permalink, title = f.name;
+    const std::string path     = file::join(cache, "files/" + f.id + "-" + name);
+    Context          &ctx      = _ctx; // outlives the list; the download may outlive it
+    auto              have     = std::make_shared<bool>(false);
+    const std::string fallback = f.permalink, title = f.name;
     model::runInBackground(
         ctx.app.platform(),
         [have, path] {
@@ -2689,7 +2854,7 @@ void MessageList::openHtmlFile(const model::File &f) {
                 [&ctx, job, path, fallback](bool ok, const std::string &err) {
                     model::jobs().end(job);
                     if (!ok)
-                        LOG_WARN("messages", "HTML file download failed: %s", err.c_str());
+                        LOG_WARN("messages", "File download failed: %s", err.c_str());
                     else if (ctx.remote) // counts toward the cache limit
                         ctx.remote->noteWritten(path);
                     if (ctx.openUrl && (ok || !fallback.empty()))

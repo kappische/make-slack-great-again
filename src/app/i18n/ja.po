@@ -790,7 +790,7 @@ msgstr "文字起こしを表示"
 msgid "Pause"
 msgstr "一時停止"
 
-#: src/app/screens/messages/audio_card.cpp
+#: src/app/screens/messages/audio_card.cpp src/app/screens/messages/message_list.cpp
 msgid "Play"
 msgstr "再生"
 
@@ -937,6 +937,14 @@ msgstr "その他の操作"
 #: src/app/screens/messages/message_list.cpp src/app/screens/settings/settings_dialog.cpp src/app/screens/shell/canvas_viewer.cpp src/app/screens/shell/session_status_dialog.cpp src/app/screens/shell/shell.cpp
 msgid "Close"
 msgstr "閉じる"
+
+#: src/app/screens/messages/message_list.cpp
+msgid "Previous"
+msgstr "前へ"
+
+#: src/app/screens/messages/message_list.cpp src/app/screens/shell/channel_dialogs.cpp
+msgid "Next"
+msgstr "次へ"
 
 #: src/app/screens/messages/message_list.cpp
 msgid "No messages yet"
@@ -1145,6 +1153,10 @@ msgstr "%1をコピー中"
 #: src/app/screens/messages/message_list.cpp
 msgid "Couldn't remove the preview (%1)."
 msgstr "プレビューを削除できませんでした（%1）。"
+
+#: src/app/screens/messages/message_list.cpp
+msgid "video"
+msgstr "動画"
 
 #: src/app/screens/messages/rich.cpp
 msgid "group message"
@@ -2388,10 +2400,6 @@ msgstr "例: plan-budget"
 #: src/app/screens/shell/channel_dialogs.cpp
 msgid "Channels are where conversations happen around a topic. Use a name that is easy to find and understand."
 msgstr "チャンネルはトピックごとに会話が行われる場所です。見つけやすく、わかりやすい名前を付けましょう。"
-
-#: src/app/screens/shell/channel_dialogs.cpp
-msgid "Next"
-msgstr "次へ"
 
 #: src/app/screens/shell/channel_dialogs.cpp
 msgid "Visibility"

@@ -289,6 +289,31 @@ TEST("slack json: a message_mention names the linked message's author for its ch
     CHECK(store.linkedAuthor("C9", "1700000000.000200") == model::kNoUser);
 }
 
+TEST("slack json: a video's poster frame is its preview; without one it stays a file") {
+    model::Store   store;
+    json::Document doc;
+    REQUIRE(doc.parse(R"({"ts": "1700000000.000100", "user": "U1", "text": "",
+      "files": [{"id": "F1", "name": "demo.mov", "mimetype": "video/quicktime",
+                 "url_private": "https://f/demo.mov", "url_private_download":
+                 "https://f/download/demo.mov", "duration_ms": 65400,
+                 "thumb_video": "https://f/demo_thumb.jpg", "thumb_video_w": 1280,
+                 "thumb_video_h": 720},
+                {"id": "F2", "name": "raw.mp4", "mimetype": "video/mp4",
+                 "url_private": "https://f/raw.mp4"},
+                {"id": "F3", "name": "song.mp3", "mimetype": "audio/mpeg",
+                 "url_private": "https://f/song.mp3", "thumb_video": "https://f/x.jpg",
+                 "thumb_video_w": 10, "thumb_video_h": 10}]})"));
+    const model::Message m = slack::mapjson::toMessage(doc.root(), store);
+    REQUIRE(m.files().size() == 3);
+    const model::File &v = m.files()[0];
+    CHECK(v.isVideo() && v.hasPreview());
+    CHECK_STR(v.thumb, "https://f/demo_thumb.jpg");
+    CHECK(v.width == 1280 && v.height == 720 && v.durationMs == 65400);
+    CHECK_STR(v.source(), "https://f/download/demo.mov");            // what Play opens
+    CHECK(m.files()[1].isVideo() && !m.files()[1].hasPreview());     // a file chip
+    CHECK(m.files()[2].thumb.empty() && !m.files()[2].hasPreview()); // only videos' posters
+}
+
 TEST("slack json: structural blocks, shared-message unfurls, PDF pages, canvas titles") {
     model::Store   store;
     json::Document doc;

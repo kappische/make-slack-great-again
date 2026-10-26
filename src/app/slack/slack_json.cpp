@@ -588,6 +588,15 @@ File toFile(const Value &o) {
         f.width  = int32_t(o["thumb_pdf_w"].integer());
         f.height = int32_t(o["thumb_pdf_h"].integer());
     }
+    if (o.has("thumb_video") && str::startsWith(f.mime, "video/")) {
+        // A video's preview: the poster frame Slack extracted (its size is the
+        // video's aspect; original_w/h, when sent, say the same).
+        f.thumb = owned(o["thumb_video"]);
+        if (f.width == 0) {
+            f.width  = int32_t(o["thumb_video_w"].integer());
+            f.height = int32_t(o["thumb_video_h"].integer());
+        }
+    }
     if (f.isCanvas())
         f.title = mrkdwn::decodeEntities(o["title"].str()); // entity-escaped
     if (f.original == f.path)
