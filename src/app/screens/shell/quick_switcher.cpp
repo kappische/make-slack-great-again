@@ -36,7 +36,7 @@ std::optional<double> scoreOf(const QuickSwitchName &n, const std::vector<uint32
     // Group DMs are named after their members, so a person matches every
     // group they are in as well as their DM — and the groups, often more
     // recent, buried it (issue #61): half a consecutive match. Without a
-    // query there is no match to bury: the sidebar's order stands.
+    // query there is no match to bury: `order` (most recent first) stands.
     return *s + (n.group && !q.empty() ? -0.5 : 0.0);
 }
 

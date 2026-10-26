@@ -363,6 +363,13 @@ TEST("sidebar: starring moves a row") {
 }
 
 namespace {
+// Past the sidebar's re-sort delay (Sidebar::kReorderMs).
+void settle() {
+    for (const double until = app().nowMs() + shell::Sidebar::kReorderMs + 200;
+         app().nowMs() < until;)
+        app().pump(5);
+}
+
 // The rows of one sidebar section, in order (its conversations' kind).
 std::vector<ConvRef> sectionRows(Harness &h, bool dms) {
     std::vector<ConvRef> out;
@@ -408,12 +415,64 @@ TEST("sidebar: channels A–Z and direct messages by recent activity, as in Slac
     // A new message in the last DM moves it to the top (once, after the burst).
     const ConvRef  last = dm.back();
     model::Message m;
-    m.user = h.store.conversation(last).dmUser;
-    m.ts   = shell::Sidebar::activityOf(h.store.conversation(dm.front())) + 1000000;
-    m.text = "hello again";
+    m.user             = h.store.conversation(last).dmUser;
+    m.ts               = shell::Sidebar::activityOf(h.store.conversation(dm.front())) + 1000000;
+    m.text             = "hello again";
+    const int rebuilds = h.sh->sidebar().rebuildCount();
     h.store.addMessage(last, std::move(m));
     pump();
+    CHECK(sectionRows(h, true).back() == last); // not per message: after the burst
+    settle();
     CHECK(sectionRows(h, true).front() == last);
+    CHECK(h.sh->sidebar().rebuildCount() == rebuilds + 1);
+}
+
+TEST("sidebar: re-sorting rebuilds only when a row is out of place, once per burst") {
+    Harness                    h;
+    shell::Sidebar            &sb = h.sh->sidebar();
+    const std::vector<ConvRef> dm = sectionRows(h, true);
+    const std::vector<ConvRef> ch = sectionRows(h, false);
+    REQUIRE(dm.size() >= 3);
+    REQUIRE(ch.size() >= 2);
+    const int rebuilds = sb.rebuildCount();
+    auto      say      = [&](ConvRef c, int64_t ts) {
+        model::Message m;
+        m.user = h.store.conversation(c).dmUser;
+        m.ts   = ts;
+        m.text = "hi";
+        h.store.addMessage(c, std::move(m));
+    };
+    // The top DM again, a channel sorted A–Z: nothing moves, nothing rebuilds.
+    const model::Ts top = shell::Sidebar::activityOf(h.store.conversation(dm.front()));
+    say(dm.front(), top + 1000000);
+    say(ch.back(), top + 2000000);
+    settle();
+    CHECK(sb.rebuildCount() == rebuilds);
+    // Two DMs further down, one after the other: one rebuild for both.
+    say(dm[dm.size() - 1], top + 3000000);
+    say(dm[dm.size() - 2], top + 4000000);
+    settle();
+    CHECK(sb.rebuildCount() == rebuilds + 1);
+    const std::vector<ConvRef> now = sectionRows(h, true);
+    CHECK(now[0] == dm[dm.size() - 2]);
+    CHECK(now[1] == dm[dm.size() - 1]);
+}
+
+TEST("sidebar: a renamed channel moves to its place in an A–Z section") {
+    Harness                    h;
+    const std::vector<ConvRef> ch = sectionRows(h, false);
+    REQUIRE(ch.size() >= 2);
+    const model::Conversation &old = h.store.conversation(ch.front());
+    model::Conversation        c;
+    c.id       = old.id;
+    c.kind     = old.kind;
+    c.member   = true;
+    c.latest   = old.latest;
+    c.lastRead = old.lastRead;
+    c.name     = "zzz-last";
+    h.store.addConversation(std::move(c)); // a roster refresh: Meta, not Roster
+    settle();
+    CHECK(sectionRows(h, false).back() == ch.front());
 }
 
 TEST("sidebar: a section header's menu sorts it, and the choice is saved") {
@@ -608,6 +667,8 @@ TEST("settings: round trip through the file") {
     s.theme       = ui::ThemeMode::Dark;
     s.threadWidth = 500;
     s.setZenMode("claude-code:local", true);
+    s.sortChannels      = 1;
+    s.sortDms           = 0;
     const std::string d = base::test::makeTempDir("msga_shell_");
     REQUIRE(!d.empty());
     const std::string path = d + "/msga/settings.json";
@@ -619,11 +680,14 @@ TEST("settings: round trip through the file") {
     CHECK(l.threadWidth == 500);
     CHECK(l.zenMode("claude-code:local")); // per workspace
     CHECK_FALSE(l.zenMode("slack:T0OTHER"));
+    CHECK((l.sortChannels == 1 && l.sortDms == 0 && l.sortStarred == 0 && l.sortApps == 0));
     // Earlier builds' one global toggle goes to the Claude Code workspace.
     REQUIRE(file::writeAtomic(d + "/old.json", R"({"zenMode":true})"));
     CHECK(shell::Settings::load(d + "/old.json").zenMode("claude-code:local"));
     const shell::Settings missing = shell::Settings::load(std::string(d) + "/nope.json");
     CHECK(missing.width == 1200);
+    // A file from before the sort menu: Slack's defaults (A–Z, DMs by activity).
+    CHECK((missing.sortChannels == 0 && missing.sortDms == 1 && missing.sortStarred == 0));
 }
 
 // ── Context menus ───────────────────────────────────────────────────────────

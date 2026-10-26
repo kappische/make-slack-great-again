@@ -121,6 +121,8 @@ public:
     // Tests: how many times the rows were rebuilt, and a row's identity (the
     // view object; null: no row), to prove a change restyled in place.
     int                      rebuildCount() const { return _rebuilds; }
+    // How long a re-sort waits for a burst of changes (reorderSoon).
+    static constexpr int     kReorderMs = 500;
     const ui::View          *rowView(model::ConvRef conv) const;
     // Sum the app badge shows: mentions + unread direct messages.
     int                      attentionCount() const;
@@ -191,8 +193,16 @@ private:
     // The section's sort menu ("Sort: Alphabetically / By most recent
     // activity") at `anchor` (window coordinates).
     void               showSortMenu(int kind, ui::RectF anchor);
-    // An activity-sorted row that now belongs above the one before it.
+    // Whether `a` sorts before `b` in section `kind` (rebuild's order).
+    bool               sortsBefore(int kind, model::ConvRef a, model::ConvRef b) const;
+    // A row its section's sort no longer puts between its neighbours (newer
+    // activity, a rename); any such row in any sorted section.
     bool               outOfOrder(const ConvRow &r) const;
+    bool               anyOutOfOrder() const;
+    // The rebuild that puts such rows in place: kReorderMs after the first
+    // (a burst sorts once), later while a row is held down; reveal: scroll
+    // the selected row into view after.
+    void               reorderSoon(bool reveal);
     ui::View          *navRow(Nav n) const;
     void               showNavSelection(); // the entries' checked look
     // The unread / effective level (Settings' default) / badge rules.
@@ -235,6 +245,8 @@ private:
     plat::TimerId            _rebuildTimer    = 0;
     plat::TimerId            _usersTimer      = 0;
     plat::TimerId            _sectionsTimer   = 0;
+    plat::TimerId            _reorderTimer    = 0;
+    bool                     _revealOnReorder = false;
     uint64_t                 _userShape       = 0; // userShape() at the last rebuild
     // The Store and its profile / text revisions _userShape was taken at.
     const model::Store      *_shapeStore      = nullptr;

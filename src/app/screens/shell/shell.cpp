@@ -69,6 +69,11 @@ namespace shell {
 
 namespace {
 
+// The sidebar sections' sorts in Settings, by section kind (Sidebar::Filters::sort).
+constexpr int Settings::*kSortFields[4] = {
+    &Settings::sortStarred, &Settings::sortChannels, &Settings::sortDms, &Settings::sortApps
+};
+
 #ifdef __APPLE__
 // The unified header (NSWindowToolbarStyleUnifiedCompact), where AppKit
 // does not say how tall its title bar is.
@@ -811,12 +816,9 @@ Shell::Shell(screens::Context &ctx, Window &win, Settings &settings, std::string
     // after the last change (coalesced).
     _sidebar->setVisited({_settings.visitedAt.begin(), _settings.visitedAt.end()});
     _sidebar->onSortChanged = [this](int section, Sidebar::Sort sort) {
-        int *sorts[4] = {
-            &_settings.sortStarred, &_settings.sortChannels, &_settings.sortDms, &_settings.sortApps
-        };
         if (section < 0 || section > 3)
             return;
-        *sorts[section] = int(sort);
+        _settings.*kSortFields[section] = int(sort);
         saveSettingsSoon();
         Sidebar::Filters f = _sidebar->filters();
         f.sort[section]    = sort;
@@ -3113,11 +3115,8 @@ void Shell::applySettings() {
     f.unreadsOnly           = _settings.unreadsOnly;
     f.highlightMentionsOnly = _settings.boldMentionsOnly;
     f.defaultLevel          = defaultLevel();
-    const int *sorts[4]     = {
-        &_settings.sortStarred, &_settings.sortChannels, &_settings.sortDms, &_settings.sortApps
-    };
     for (int s = 0; s < 4; ++s)
-        f.sort[s] = Sidebar::Sort(*sorts[s]);
+        f.sort[s] = Sidebar::Sort(_settings.*kSortFields[s]);
     _sidebar->setFilters(f);
     for (const auto &r : _running)
         r->dirty = true; // the default level decides what counts
