@@ -43,11 +43,18 @@ public:
     // The presence toggle's change failed: the message for the error banner.
     std::function<void(const std::string &message)> onError;
 
-    void           showAvatarMenu();
-    void           togglePresence();
-    bool           showsHidden() const; // the toggle's icon: hat-glasses
-    ui::View      *avatarButton() const { return _avatarBtn; }
-    ui::Clickable *toggle() const; // the presence toggle
+    void                 showAvatarMenu();
+    // "Pause notifications" (Capabilities::pauseNotifications): the avatar
+    // menu's submenu — while paused, until when and "Resume notifications",
+    // then for 30 minutes / 1 hour / 2 hours, until tomorrow or next week
+    // (9:00). Paused, my avatar shows the do-not-disturb "z".
+    ui::MenuItem         pauseMenu() const;
+    void                 pauseNotifications(int menuId); // kPauseResume … +5
+    static constexpr int kPauseResume = 20;
+    void                 togglePresence();
+    bool                 showsHidden() const; // the toggle's icon: hat-glasses
+    ui::View            *avatarButton() const { return _avatarBtn; }
+    ui::Clickable       *toggle() const; // the presence toggle
 
     // The background-task cog (hidden while no job runs) and its hover list
     // (null unless shown).
@@ -71,6 +78,7 @@ private:
     model::Jobs::ObserverId _jobsObserver = 0;
     bool                    _zenOn        = false;
     plat::TimerId           _confirm      = 0; // settle back if the service never answers
+    std::shared_ptr<char>   _alive        = std::make_shared<char>();
 };
 
 } // namespace shell

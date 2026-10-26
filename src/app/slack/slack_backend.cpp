@@ -635,6 +635,7 @@ void SlackBackend::Read::startLoads() {
     loadUsers([this](const std::string &) { connectSettled(); });
     refreshStarred();
     loadUsergroups();
+    b.loadDnd();
     refreshSaved();
     loadCommands();
     loadNames();
@@ -3106,19 +3107,20 @@ void SlackBackend::deleteRead(Read *r) {
 // The capabilities, for the fields the shell gates on.
 model::Backend::Capabilities SlackBackend::capabilities() const {
     Capabilities c;
-    c.huddles          = true;
-    c.replyBroadcast   = true;
-    c.scheduledSend    = true;                 // chat.scheduleMessage
-    c.memberList       = true;                 // conversations.members
-    c.threadsView      = _creds.sessionAuth(); // subscriptions.thread.getView: xoxc only
-    c.messageReminders = _creds.sessionAuth(); // saved.*: xoxc only
-    c.presence         = true;                 // polled users.getPresence
-    c.selfStatus       = true;
-    c.canvases         = true;
-    c.fileUpload       = true;                 // files.getUploadURLExternal
-    c.removePreview    = _creds.sessionAuth(); // chat.deleteAttachment: internal, xoxc only
-    c.slashCommands    = true;                 // the built-ins, commands.list, chat.command
-    c.sidebarTheme     = _creds.sessionAuth(); // users.prefs.get: xoxc only
+    c.huddles            = true;
+    c.replyBroadcast     = true;
+    c.scheduledSend      = true;                 // chat.scheduleMessage
+    c.memberList         = true;                 // conversations.members
+    c.threadsView        = _creds.sessionAuth(); // subscriptions.thread.getView: xoxc only
+    c.messageReminders   = _creds.sessionAuth(); // saved.*: xoxc only
+    c.presence           = true;                 // polled users.getPresence
+    c.selfStatus         = true;
+    c.canvases           = true;
+    c.fileUpload         = true;                 // files.getUploadURLExternal
+    c.removePreview      = _creds.sessionAuth(); // chat.deleteAttachment: internal, xoxc only
+    c.slashCommands      = true;                 // the built-ins, commands.list, chat.command
+    c.sidebarTheme       = _creds.sessionAuth(); // users.prefs.get: xoxc only
+    c.pauseNotifications = true;                 // dnd.setSnooze / dnd.info
     return c;
 }
 

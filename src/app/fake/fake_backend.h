@@ -76,6 +76,9 @@ public:
     Capabilities capabilities() const override;
     SelfPresence selfPresence() const override { return {true, false, false, false}; }
     void         setPresence(bool away, Done done) override;
+    // A snooze kept here (the fixture has no schedule): me.dnd follows it.
+    void         pauseNotifications(int minutes, Done done) override;
+    int64_t      notificationsPausedUntil() const override;
     void         setStatus(std::string emoji, std::string text, int64_t expiry, Done done) override;
     void         loadMembers(model::ConvRef conv, MembersDone done) override;
     // My profile round-trips through the Store (the phone is kept here).
@@ -119,6 +122,7 @@ public:
     static constexpr int kUnfurlDelayMs = 900;
 
 private:
+    int64_t _pausedUntil = 0; // pauseNotifications
     enum class ConvFlag : uint8_t { Starred, Muted, Notify, Member };
     void           setConvFlag(model::ConvRef conv, ConvFlag f, int v);
     void           setMessageFlag(model::ConvRef conv, model::Ts ts, bool pinFlag, bool on);

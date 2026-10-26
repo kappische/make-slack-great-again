@@ -355,12 +355,29 @@ void FakeBackend::deleteFile(ConvRef conv, Ts ts, const std::string &fileId) {
 
 FakeBackend::Capabilities FakeBackend::capabilities() const {
     Capabilities c;
-    c.memberList       = true;
-    c.threadsView      = true;
-    c.messageReminders = true;
-    c.canvases         = true;
-    c.fileUpload       = true;
+    c.memberList         = true;
+    c.threadsView        = true;
+    c.messageReminders   = true;
+    c.canvases           = true;
+    c.fileUpload         = true;
+    c.pauseNotifications = true;
     return c;
+}
+
+void FakeBackend::pauseNotifications(int minutes, Done done) {
+    later(kReadLatencyMs, [this, minutes, done = std::move(done)] {
+        _pausedUntil = minutes > 0 ? nowSecs() + int64_t(minutes) * 60 : 0;
+        if (_store.me != model::kNoUser) {
+            _store.user(_store.me).dnd = minutes > 0;
+            _store.usersChanged(_store.me);
+        }
+        if (done)
+            done(true, {});
+    });
+}
+
+int64_t FakeBackend::notificationsPausedUntil() const {
+    return _pausedUntil > nowSecs() ? _pausedUntil : 0;
 }
 
 void FakeBackend::setPresence(bool, Done done) {

@@ -603,4 +603,50 @@ TEST("slack features: an OAuth callback delivered twice exchanges the code once"
     CHECK(count("oauth.v2.access") == 1);
 }
 
+TEST("slack features: paused notifications — dnd.info at connect, snooze, resume, the schedule") {
+    const int64_t now   = base::nowSecs();
+    const int64_t until = now + 3600;
+    Env           e(
+        str::concat(
+            {R"({"dnd.info": {"ok": true, "dnd_enabled": false, "snooze_enabled": true, "snooze_endtime": )",
+             str::number(until),
+             "}}"}
+        )
+    );
+    REQUIRE(e.connect());
+    REQUIRE(pumpUntil([&] { return e.be->notificationsPausedUntil() == until; }));
+    CHECK(e.store.user(e.store.me).dnd);
+    CHECK(e.be->capabilities().pauseNotifications);
+    // Resume: a snooze ends with dnd.endSnooze.
+    set(R"({"dnd.info": {"ok": true, "dnd_enabled": false, "snooze_enabled": false}})");
+    bool done = false;
+    e.be->pauseNotifications(0, [&](bool ok, const std::string &) { done = ok; });
+    REQUIRE(pumpUntil([&] { return done && e.be->notificationsPausedUntil() == 0; }));
+    CHECK(count("dnd.endSnooze") == 1);
+    CHECK_FALSE(e.store.user(e.store.me).dnd);
+    // Pause for 30 minutes: dnd.setSnooze, num_minutes.
+    done = false;
+    e.be->pauseNotifications(30, [&](bool ok, const std::string &) { done = ok; });
+    REQUIRE(pumpUntil([&] { return done; }));
+    CHECK_STR(Log().get("dnd.setSnooze")["form"]["num_minutes"].str(), "30");
+    // Inside the account's schedule: paused until its stretch ends; resuming
+    // ends that stretch (dnd.endDnd), not a snooze.
+    const int64_t end = now + 7200;
+    set(str::concat(
+        {R"({"dnd.info": {"ok": true, "dnd_enabled": true, "snooze_enabled": false, )",
+         R"("next_dnd_start_ts": )",
+         str::number(now - 60),
+         R"(, "next_dnd_end_ts": )",
+         str::number(end),
+         "}}"}
+    ));
+    e.be->loadDnd();
+    REQUIRE(pumpUntil([&] { return e.be->notificationsPausedUntil() == end; }));
+    done = false;
+    e.be->pauseNotifications(0, [&](bool ok, const std::string &) { done = ok; });
+    REQUIRE(pumpUntil([&] { return done; }));
+    CHECK(count("dnd.endDnd") == 1);
+    CHECK(count("dnd.endSnooze") == 1);
+}
+
 #endif // !_WIN32

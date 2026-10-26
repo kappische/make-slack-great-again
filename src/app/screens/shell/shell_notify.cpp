@@ -187,6 +187,10 @@ void Shell::maybeNotify(
         return; // too old: a backfill, not news
     if (!_settings.notifications || st.workspaceMuted)
         return;
+    // Paused (do not disturb: a snooze, or the account's schedule): quiet,
+    // as Slack's own apps are.
+    if (be.notificationsPausedUntil() > be.nowSecs())
+        return;
     if ((st.me != kNoUser && m.user == st.me) || m.pending)
         return;
     // Huddles notify on their own; an agent's mid-task updates (tool calls,
@@ -305,7 +309,7 @@ void Shell::huddleChanged(model::Store &st, const std::string &key, ConvRef conv
         return;
     model::Backend &be = backendFor(st);
     if (!_settings.notifications || !_settings.notifyHuddles || st.workspaceMuted ||
-        !be.capabilities().huddles)
+        !be.capabilities().huddles || be.notificationsPausedUntil() > be.nowSecs())
         return;
     const model::NotifyLevel level = effectiveLevel(c);
     if (!c.member || c.muted || level == model::NotifyLevel::Nothing)

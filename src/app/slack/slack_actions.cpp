@@ -2231,7 +2231,8 @@ model::Backend::LocalResult SlackBackend::runLocalCommand(
 }
 
 // dnd.setSnooze for a number of minutes, dnd.endSnooze
-// for 0; my User shows it at once (the dnd_updated_user echo agrees).
+// for 0; my User shows it at once (the dnd_updated_user echo agrees), then
+// dnd.info says until when.
 void SlackBackend::setDndSnooze(int minutes, Done done) {
     api(
         minutes > 0 ? "dnd.setSnooze" : "dnd.endSnooze",
@@ -2240,11 +2241,83 @@ void SlackBackend::setDndSnooze(int minutes, Done done) {
         [this, minutes](const json::Document &) {
             if (_store.me != model::kNoUser) {
                 _store.user(_store.me).dnd = minutes > 0;
+                _pausedUntil               = minutes > 0 ? nowSecs() + int64_t(minutes) * 60 : 0;
+                _dndSnoozed                = minutes > 0;
                 _store.usersChanged(_store.me);
             }
+            loadDnd();
         },
         std::move(done)
     );
+}
+
+// Resuming ends a snooze, or — inside the account's notification schedule —
+// that stretch of it (dnd.endDnd), as Slack's "Resume notifications" does.
+void SlackBackend::pauseNotifications(int minutes, Done done) {
+    if (minutes > 0 || _dndSnoozed || _pausedUntil == 0) {
+        setDndSnooze(minutes, std::move(done));
+        return;
+    }
+    api(
+        "dnd.endDnd",
+        std::string(),
+        [this](const json::Document &) {
+            if (_store.me != model::kNoUser) {
+                _store.user(_store.me).dnd = false;
+                _pausedUntil               = 0;
+                _store.usersChanged(_store.me);
+            }
+            loadDnd();
+        },
+        std::move(done)
+    );
+}
+
+void SlackBackend::loadDnd() {
+    readCall("dnd.info", std::string(), [this](const json::Document &doc, const std::string &err) {
+        if (err.empty())
+            applyDnd(doc.root());
+    });
+}
+
+// dnd.info's answer and dnd_updated's dnd_status read alike: a snooze
+// (snooze_enabled, snooze_endtime), and the schedule (dnd_enabled with its
+// next stretch, next_dnd_start_ts … next_dnd_end_ts).
+void SlackBackend::applyDnd(const json::Value &st) {
+    const int64_t now     = nowSecs();
+    const int64_t snooze  = st["snooze_enabled"].boolean() ? st["snooze_endtime"].integer() : 0;
+    const int64_t start   = st["next_dnd_start_ts"].integer();
+    const int64_t end     = st["next_dnd_end_ts"].integer();
+    const bool    inSched = st["dnd_enabled"].boolean() && start <= now && now < end;
+    const bool    snoozed = snooze > now;
+    const int64_t until   = std::max(snoozed ? snooze : 0, inSched ? end : 0);
+    _dndSnoozed           = snoozed;
+    if (_store.me != model::kNoUser) {
+        model::User &me = _store.user(_store.me);
+        if (me.dnd != (until > 0) || _pausedUntil != until) {
+            me.dnd       = until > 0;
+            _pausedUntil = until;
+            _store.usersChanged(_store.me);
+        }
+    }
+    // Asked again when it next turns by itself: the snooze or the schedule's
+    // stretch ending, or the schedule starting (at most a day ahead).
+    int64_t next = 0;
+    for (const int64_t t : {snooze, start, end})
+        if (t > now && (next == 0 || t < next))
+            next = t;
+    if (_dndTimer)
+        _app.cancelTimer(_dndTimer);
+    _dndTimer = 0;
+    if (next == 0)
+        return;
+    const int64_t ms = (std::min<int64_t>(next - now, 86400) + 2) * 1000;
+    _dndTimer        = _app.addTimer(int(ms), false, [this, alive = _alive] {
+        if (!*alive)
+            return;
+        _dndTimer = 0;
+        loadDnd();
+    });
 }
 
 // ── Bot buttons (slack-bot-button-press.md) ─────────────────────────────────

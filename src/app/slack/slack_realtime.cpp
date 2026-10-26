@@ -272,6 +272,10 @@ void SlackBackend::Live::apply(const json::Value &ev, bool ours) {
         });
         return;
     }
+    if (type == "dnd_updated") { // mine (others' come as dnd_updated_user)
+        b.applyDnd(ev["dnd_status"]);
+        return;
+    }
     if (type == "presence_change" || type == "dnd_updated_user") {
         const bool presence = type == "presence_change";
         const bool on =

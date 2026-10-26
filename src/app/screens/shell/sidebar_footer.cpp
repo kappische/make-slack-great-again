@@ -1,6 +1,7 @@
 #include "screens/shell/sidebar_footer.h"
 
 #include "base/i18n.h"
+#include "base/time.h"
 #include "gfx/icons_generated.h"
 #include "screens/shell/nav_chrome.h"
 #include "screens/shell/shell_text.h"
@@ -8,6 +9,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <memory>
 #include <utility>
 
 using namespace ui;
@@ -342,9 +344,11 @@ void SidebarFooter::refresh() {
     // phantomAway() is false while manually away: an explicit "hidden" shows
     // the hollow ring rather than the amber tint.
     const bool active = sp.loaded ? sp.active : me.active;
-    // The footer never draws my own DND.
+    // Notifications paused: the "z" on my avatar, as Slack shows it.
+    const bool paused = _ctx.backend.notificationsPausedUntil() > _ctx.backend.nowSecs();
     _avatar->setPresence(
         !self              ? P::None
+        : paused           ? P::Dnd
         : active           ? P::Active
         : sp.phantomAway() ? P::Phantom
                            : P::Away,
@@ -430,6 +434,93 @@ void SidebarFooter::togglePresence() {
     });
 }
 
+namespace {
+
+// "3:45 PM", "tomorrow at 9:00 AM", else "Mar 15, 9:00 AM".
+std::string untilLabel(int64_t secs, int64_t now) {
+    const int64_t days = base::localDay(secs) - base::localDay(now);
+    if (days <= 0)
+        return base::formatTime(secs);
+    if (days == 1)
+        return i18n::arg(tr("tomorrow at %1"), base::formatTime(secs));
+    return base::formatDateTime(secs);
+}
+
+// Minutes from now until `days` from today at 9:00 local time.
+int minutesUntilMorning(int64_t now, int days) {
+    const base::CivilTime c = base::localTime(now);
+    const int64_t         t = base::fromLocal(c.year, c.month, c.day + days, 9, 0);
+    return int(std::max<int64_t>(1, (t - now + 59) / 60));
+}
+
+} // namespace
+
+MenuItem SidebarFooter::pauseMenu() const {
+    MenuItem m;
+    m.label             = tr("Pause notifications");
+    m.icon              = uint16_t(Icon::BellOff);
+    const int64_t now   = _ctx.backend.nowSecs();
+    const int64_t until = _ctx.backend.notificationsPausedUntil();
+    if (until > now) {
+        m.sub.push_back(
+            MenuItem::headerItem(i18n::arg(tr("Paused until %1"), untilLabel(until, now)))
+        );
+        MenuItem resume;
+        resume.id    = kPauseResume;
+        resume.label = tr("Resume notifications");
+        m.sub.push_back(std::move(resume));
+        m.sub.push_back(MenuItem::separatorItem());
+    }
+    const char *const kPresets[] = {
+        N_("For 30 minutes"),
+        N_("For 1 hour"),
+        N_("For 2 hours"),
+        N_("Until tomorrow"),
+        N_("Until next week")
+    };
+    for (int i = 0; i < 5; ++i) {
+        MenuItem p;
+        p.id    = kPauseResume + 1 + i;
+        p.label = tr(kPresets[i]);
+        m.sub.push_back(std::move(p));
+    }
+    return m;
+}
+
+void SidebarFooter::pauseNotifications(int id) {
+    const int64_t now      = _ctx.backend.nowSecs();
+    // Next week: the coming Monday at 9:00, as Slack's "Until next week".
+    const int     toMonday = (8 - base::localTime(now).weekday) % 7;
+    int           minutes  = 0;
+    switch (id - kPauseResume) {
+    case 1:
+        minutes = 30;
+        break;
+    case 2:
+        minutes = 60;
+        break;
+    case 3:
+        minutes = 120;
+        break;
+    case 4:
+        minutes = minutesUntilMorning(now, 1);
+        break;
+    case 5:
+        minutes = minutesUntilMorning(now, toMonday == 0 ? 7 : toMonday);
+        break;
+    default:
+        break; // resume
+    }
+    std::weak_ptr<char> alive = _alive;
+    _ctx.backend.pauseNotifications(minutes, [this, alive](bool ok, const std::string &err) {
+        if (alive.expired())
+            return;
+        if (!ok && onError)
+            onError(i18n::arg(tr("Could not update notifications: %1"), err));
+        refresh();
+    });
+}
+
 void SidebarFooter::showAvatarMenu() {
     Window *w = window();
     if (!w)
@@ -447,12 +538,18 @@ void SidebarFooter::showAvatarMenu() {
         st.enabled = bool(onManageStatus);
         items.push_back(std::move(st));
     }
+    if (_ctx.backend.capabilities().pauseNotifications)
+        items.push_back(pauseMenu());
     const RectF r = _avatarBtn->windowRect();
     Menu::show(
         *w,
         {r.x, r.y, 0, 0},
         std::move(items),
         [this](int id) {
+            if (id >= kPauseResume) {
+                pauseNotifications(id);
+                return;
+            }
             auto &hook = id == 1 ? onManageProfile : onManageStatus;
             if (hook)
                 hook();
