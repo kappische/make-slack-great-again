@@ -33,24 +33,30 @@ public:
         int                   id = 0;
         std::string           name;                    // the file's name, as the list shows it
         std::string           path;                    // where it is (or is going)
+        std::string           source;                  // what it came from (a URL); "" = unknown
         std::string           error;                   // Failed: why ("http 404"), for the log
         int64_t               received = 0, total = 0; // bytes; total 0 = not known yet
         int64_t               at      = 0;             // when it started, epoch secs
         State                 state   = State::Running;
         bool                  missing = false; // Done, but no file at `path` any more (checkFiles)
         std::function<void()> stop;            // Running: ends it (setStop); not saved
+        // Running: told once it is done, failed or cancelled (whenDone); not saved.
+        std::function<void(const Item &)> waiter;
     };
     static constexpr size_t kMax = 50;
 
     // A new running download at the top; returns its id. Older finished ones
     // past kMax drop off the end.
-    int  begin(std::string name, std::string path, int64_t size);
+    int  begin(std::string name, std::string path, int64_t size, std::string source = {});
     // How to stop it (Backend::downloadFileTracked's answer); null = it can't be.
     void setStop(int id, std::function<void()> stop);
     void progress(int id, int64_t received, int64_t total);
     // ok: Done (received = total = the size if it was known); else Failed, or
     // Cancelled for error "cancelled". Unknown or finished ids are ignored.
     void finish(int id, bool ok, std::string error = {});
+    // `fn` once a running one finishes (after the observers; several chain).
+    // A finished or unknown id: never.
+    void whenDone(int id, std::function<void(const Item &)> fn);
     // The stop of a running one (which answers finish(…, "cancelled")).
     void cancel(int id);
     // Off the list (the file stays where it is); a running one is stopped.
@@ -60,6 +66,8 @@ public:
 
     const std::vector<Item> &items() const { return _items; }
     const Item              *find(int id) const;
+    // The newest download of `source`, whatever became of it; null for none.
+    const Item              *latest(std::string_view source) const;
     size_t                   running() const;
     // The sum over running downloads whose size is known: for the footer's
     // ring. False when none says its size.

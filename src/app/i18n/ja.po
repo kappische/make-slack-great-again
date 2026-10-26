@@ -946,6 +946,34 @@ msgstr "前へ"
 msgid "Next"
 msgstr "次へ"
 
+#: src/app/screens/messages/message_list.cpp src/app/screens/shell/downloads_popup.cpp
+msgid "%1 of %2"
+msgstr "%1 / %2"
+
+#: src/app/screens/messages/message_list.cpp
+msgid "Downloading %1 — it opens in your video player when it’s done"
+msgstr "%1 をダウンロード中 — 完了するとビデオプレーヤーで開きます"
+
+#: src/app/screens/messages/message_list.cpp src/app/screens/shell/downloads_popup.cpp
+msgid "Starting…"
+msgstr "開始しています…"
+
+#: src/app/screens/messages/message_list.cpp
+msgid "Opened in your video player. It’s saved in your Downloads folder."
+msgstr "ビデオプレーヤーで開きました。ダウンロードフォルダーに保存されています。"
+
+#: src/app/screens/messages/message_list.cpp
+msgid "Opened in your video player"
+msgstr "ビデオプレーヤーで開きました"
+
+#: src/app/screens/messages/message_list.cpp
+msgid "Couldn’t download the video"
+msgstr "ビデオをダウンロードできませんでした"
+
+#: src/app/screens/messages/message_list.cpp
+msgid "Download cancelled"
+msgstr "ダウンロードをキャンセルしました"
+
 #: src/app/screens/messages/message_list.cpp
 msgid "No messages yet"
 msgstr "まだメッセージはありません"
@@ -2742,14 +2770,6 @@ msgstr "msgaから削除"
 #: src/app/screens/shell/context_menus.cpp
 msgid "Log out from %1"
 msgstr "%1からログアウト"
-
-#: src/app/screens/shell/downloads_popup.cpp
-msgid "%1 of %2"
-msgstr "%1 / %2"
-
-#: src/app/screens/shell/downloads_popup.cpp
-msgid "Starting…"
-msgstr "開始しています…"
 
 #: src/app/screens/shell/downloads_popup.cpp
 msgid "Moved or deleted"

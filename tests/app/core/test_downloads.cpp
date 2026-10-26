@@ -84,6 +84,35 @@ TEST("downloads: cancel uses the stop; remove and clear keep running ones") {
     CHECK(d.items()[0].id == e);
 }
 
+TEST("downloads: whenDone tells each waiter once; latest finds a source's newest download") {
+    Downloads                d;
+    const int                a = d.begin("v.mp4", "/dl/v.mp4", 0, "https://f/v.mp4");
+    std::vector<std::string> told;
+    d.whenDone(a, [&](const Downloads::Item &it) {
+        CHECK(it.state == S::Done);
+        CHECK(d.find(it.id) != nullptr); // after the list changed
+        told.push_back("first");
+    });
+    d.whenDone(a, [&](const Downloads::Item &) { told.push_back("second"); });
+    CHECK(d.latest("https://f/v.mp4")->id == a);
+    CHECK(d.latest("https://f/other.mp4") == nullptr);
+    CHECK(d.latest("") == nullptr);
+    d.finish(a, true);
+    REQUIRE(told.size() == 2);
+    CHECK_STR(told[0], "first");
+    CHECK_STR(told[1], "second");
+    d.finish(a, true); // finished: nobody is told again
+    d.whenDone(a, [&](const Downloads::Item &) { told.push_back("late"); });
+    CHECK(told.size() == 2);
+    // A newer one of the same source is the latest; a cancel tells its waiter.
+    const int b = d.begin("v (1).mp4", "/dl/v (1).mp4", 0, "https://f/v.mp4");
+    CHECK(d.latest("https://f/v.mp4")->id == b);
+    S got = S::Running;
+    d.whenDone(b, [&](const Downloads::Item &it) { got = it.state; });
+    d.cancel(b);
+    CHECK(got == S::Cancelled);
+}
+
 TEST("downloads: the list keeps the newest finished ones, never dropping a running one") {
     Downloads d;
     const int first = d.begin("first", "/dl/first", 0); // stays running
@@ -103,7 +132,7 @@ TEST("downloads: saved after each change; read back with interrupted ones failed
         Downloads d;
         d.setFile(app, path);
         fakeslack::pumpFor(30);
-        const int a = d.begin("report.pdf", "/dl/report.pdf", 1234);
+        const int a = d.begin("report.pdf", "/dl/report.pdf", 1234, "https://f/report.pdf");
         d.finish(a, true);
         d.begin("big.iso", "/dl/big.iso", 0); // still running at "quit"
         REQUIRE(
@@ -127,6 +156,7 @@ TEST("downloads: saved after each change; read back with interrupted ones failed
     CHECK(d.items()[1].state == S::Failed);
     CHECK_STR(d.items()[1].error, "interrupted");
     CHECK(d.items()[2].state == S::Done && d.items()[2].total == 1234);
+    CHECK_STR(d.items()[2].source, "https://f/report.pdf");
     // Its file isn't there: it shows as moved or deleted.
     REQUIRE(fakeslack::pumpUntil([&] { return d.items()[2].missing; }, 5000));
     REQUIRE(

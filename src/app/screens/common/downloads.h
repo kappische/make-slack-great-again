@@ -11,8 +11,10 @@
 #pragma once
 
 #include "app/model/backend.h"
+#include "app/model/downloads.h"
 
 #include <cstdint>
+#include <functional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -22,6 +24,8 @@ class App;
 }
 
 namespace screens {
+
+struct Context;
 
 void fetchFile(
     plat::App           &app,
@@ -35,8 +39,27 @@ void fetchFile(
 // the Downloads folder (home without one) under `name` — a free name,
 // "report (1).pdf", when it is taken — listed in model::downloads() with its
 // progress until it is in (`size`: what the service says, 0 = unknown).
+// `started` gets the list's id once the download is in it (before any byte).
 void downloadToFolder(
-    plat::App &app, model::Backend &backend, std::string name, std::string source, int64_t size
+    plat::App               &app,
+    model::Backend          &backend,
+    std::string              name,
+    std::string              source,
+    int64_t                  size,
+    std::function<void(int)> started = nullptr
+);
+// A video's Play: `source` opened in the OS's app for it from the Downloads
+// folder, so it is where the user looks for it afterwards — the copy
+// downloaded before when it is still there, else the download under way, else
+// a new one (downloadToFolder), opened once it is in. A local file (a pending
+// upload, a Claude Code output) opens where it is. `done` (may be null) says
+// how it ended: Done once it was opened.
+void openFromDownloads(
+    Context                                     &ctx,
+    std::string                                  name,
+    std::string                                  source,
+    int64_t                                      size,
+    std::function<void(model::Downloads::State)> done
 );
 // A free path for `name` in `dir`: dir/name, else "stem (1).ext", "stem
 // (2).ext", … — one that isn't on disk and that `taken` doesn't claim. Reads

@@ -4072,7 +4072,8 @@ TEST("viewer: Left / Right step through the list's pictures in place, stopping a
     pump(2);
 }
 
-TEST("viewer: a video shows its poster; Play opens it in the OS player, downloaded once") {
+TEST("viewer: Play saves a video into Downloads, says so, and opens it there in the OS player") {
+    model::downloads().reset();
     Env                      e(false);
     std::vector<std::string> opened;
     e.ctx.openUrl    = [&](const std::string &u) { opened.push_back(u); };
@@ -4097,6 +4098,9 @@ TEST("viewer: a video shows its poster; Play opens it in the OS player, download
     REQUIRE(e.row(ts) != nullptr);
     pump(20); // the poster decoded, for the dump
     dump(e, "video-row");
+    const std::string saved =
+        file::join(app().platform().standardDir(plat::StandardDir::Downloads), "clip.mp4");
+    file::remove(saved);
 
     e.list->openFileViewer(ts, v.path);
     pump(2);
@@ -4105,22 +4109,35 @@ TEST("viewer: a video shows its poster; Play opens it in the OS player, download
     ui::View *play = findByTooltip(viewer, "Play");
     REQUIRE(play != nullptr);
     CHECK(play->visible());
-    pump(20);
-    dump(e, "video-viewer");
     ui::Event enter = key(plat::Key::Enter, 0);
     viewer->onEvent(enter);
+    CHECK(findNamed(viewer, "Starting") != nullptr); // at once, before any byte
     REQUIRE(until([&] { return !opened.empty(); }));
+    pump(20); // the poster decoded, for the dump
+    dump(e, "video-viewer");
+    // Into Downloads, listed, and opened from there.
     REQUIRE(e.backend.asked.size() == 1);
     CHECK_STR(e.backend.asked[0].url, v.original); // the upload, not the poster
-    CHECK(str::startsWith(opened[0], "file://"));
-    CHECK(str::endsWith(opened[0], "/FVID-clip.mp4"));
-    CHECK(file::size(e.backend.asked[0].to) > 0);
-    // Again: from the cache, no second download.
+    CHECK_STR(e.backend.asked[0].to, saved);
+    REQUIRE(model::downloads().items().size() == 1);
+    CHECK_STR(model::downloads().items()[0].source, v.original);
+    CHECK(model::downloads().items()[0].state == model::Downloads::State::Done);
+    CHECK_STR(opened[0], file::toFileUrl(saved));
+    CHECK(file::size(saved) > 0);
+    CHECK(findNamed(viewer, "Opened in your video player") != nullptr);
+    // Again: that copy, no second download.
     viewer->onEvent(enter);
     REQUIRE(until([&] { return opened.size() == 2; }));
     CHECK(e.backend.asked.size() == 1);
     CHECK_STR(opened[1], opened[0]);
-    file::remove(e.backend.asked[0].to);
+    // Gone from Downloads: downloaded again.
+    file::remove(saved);
+    viewer->onEvent(enter);
+    REQUIRE(until([&] { return opened.size() == 3; }));
+    CHECK(e.backend.asked.size() == 2);
+    CHECK(file::size(saved) > 0);
     viewer->close();
     pump(2);
+    file::remove(saved);
+    model::downloads().reset();
 }

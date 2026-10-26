@@ -147,7 +147,9 @@ public:
 // Left / Right (and the round chevrons at the sides) step to the list's
 // previous / next picture in place (MessageList::viewerNeighbour). A video
 // shows its poster under a play button (or Enter / Space, or a click on it)
-// that opens it in the OS's player.
+// that opens it in the OS's player from the Downloads folder (downloading it
+// first): the button rings with the download's progress and a line under the
+// poster says what is happening ("Downloading 12 MB of 40 MB — …").
 class FileViewer final : public ui::Popup {
 public:
     FileViewer(Context &ctx, MessageList *list, Ts ts, const model::File &f)
@@ -192,6 +194,9 @@ public:
         _full->setPlaceholder(C::None);
         _play          = add<PlayButton>();
         _play->onClick = [this] { play(); };
+        _status        = add<ui::Label>();
+        _status->setMaxLines(1);
+        _observer = model::downloads().observe([this] { updatePlay(); });
         if (list) {
             _prev          = add<NavButton>(gfx::Icon::ChevronLeft, tr("Previous"));
             _prev->onClick = [this] { step(-1); };
@@ -201,6 +206,7 @@ public:
         bind();
         setFocusable(true);
     }
+    ~FileViewer() override { model::downloads().unobserve(_observer); }
     void layout() override {
         const float w = width();
         _bar->setFrame({0, 0, w, kBarH});
@@ -210,6 +216,8 @@ public:
         _play->setFrame(
             {std::floor(r.x + (r.w - kPlay) / 2), std::floor(r.y + (r.h - kPlay) / 2), kPlay, kPlay}
         );
+        const float sh = _status->measure(w - 2 * kMargin, ui::kInf).h;
+        _status->setFrame({kMargin, r.y + r.h + 12, w - 2 * kMargin, sh});
         if (_list) {
             const float y = std::floor(kBarH + (height() - kBarH - kNav) / 2);
             _prev->setFrame({kMargin, y, kNav, kNav});
@@ -244,7 +252,7 @@ public:
     }
 
 private:
-    static constexpr float kBarH = 56, kMargin = 24, kNav = 44, kPlay = 72;
+    static constexpr float kBarH = 56, kMargin = 24, kNav = 44, kPlay = 72, kStatusH = 32;
     // A round button on the dark bar: 20-px onDark icon, a white wash on hover.
     class ViewerButton : public IconButton {
     public:
@@ -272,15 +280,46 @@ private:
         }
     };
 
-    // A video's play button: white on a dark disc, legible over any frame.
+    // A video's play button: white on a dark disc, legible over any frame;
+    // while its download runs, a ring of how much is in.
     class PlayButton final : public ViewerButton {
     public:
         PlayButton() : ViewerButton(gfx::Icon::Play, tr("Play"), 30) { style().size(kPlay, kPlay); }
+        // 0…1, or < 0 for no ring.
+        void setProgress(float f) {
+            if (f != _progress) {
+                _progress = f;
+                update();
+            }
+        }
         void paint(gfx::Painter &p) override {
             p.fillRoundRect(bounds(), height() / 2, hovered() ? 0xcc000000U : 0x99000000U);
             paintIcon(p);
+            if (_progress < 0)
+                return;
+            const float cx = width() / 2, cy = height() / 2, r = width() / 2 - 4;
+            p.strokeCircle({cx, cy}, r, 3, 0x40ffffffU);
+            if (_progress <= 0)
+                return;
+            constexpr float kPi   = 3.14159265f;
+            const int       steps = std::max(2, int(std::ceil(64 * _progress)));
+            gfx::Path       arc;
+            for (int i = 0; i <= steps; ++i) {
+                const float a = -kPi / 2 + 2 * kPi * _progress * float(i) / float(steps);
+                if (i == 0)
+                    arc.moveTo(cx + r * std::cos(a), cy + r * std::sin(a));
+                else
+                    arc.lineTo(cx + r * std::cos(a), cy + r * std::sin(a));
+            }
+            p.strokePath(arc, 3, 0xffffffffU);
         }
+
+    private:
+        float _progress = -1;
     };
+    // What Play did for the file shown: nothing yet, waiting for its
+    // download, or how it ended.
+    enum class Played : uint8_t { No, Waiting, Opened, Failed, Cancelled };
 
     // The bar and the picture for (_ts, _file); the arrows for its neighbours.
     void bind() {
@@ -311,6 +350,9 @@ private:
         _full->setPath(full ? f.source() : std::string());
         _full->setVisible(full);
         _play->setVisible(f.isVideo() && _list);
+        _played = Played::No;
+        ++_request; // an answer for the file shown before is not this one's
+        updatePlay();
         if (_list) {
             Ts                 t = 0;
             const model::File *n = nullptr;
@@ -325,8 +367,64 @@ private:
         update();
     }
     void play() {
-        if (_list)
-            _list->playVideo(_file);
+        if (!_list || _played == Played::Waiting)
+            return;
+        _played                   = Played::Waiting;
+        const int           req   = ++_request;
+        std::weak_ptr<char> alive = _alive;
+        _list->playVideo(_file, [this, alive, req](model::Downloads::State s) {
+            using S = model::Downloads::State;
+            if (alive.expired() || req != _request)
+                return; // closed, or on another file now: the player opens anyway
+            _played = s == S::Done        ? Played::Opened
+                      : s == S::Cancelled ? Played::Cancelled
+                                          : Played::Failed;
+            updatePlay();
+        });
+        updatePlay();
+    }
+    // The ring and the line under the poster, from the video's download.
+    void updatePlay() {
+        using S                          = model::Downloads::State;
+        const bool                    on = _file.isVideo() && _list;
+        const model::Downloads::Item *it = on ? model::downloads().latest(_file.source()) : nullptr;
+        const bool                    running = it && it->state == S::Running;
+        std::string                   line;
+        if (running) {
+            const std::string got = it->total > 0
+                                        ? arg(tr("%1 of %2"),
+                                              str::byteSize(it->received, str::ByteSize::Exact),
+                                              str::byteSize(it->total, str::ByteSize::Exact))
+                                        : str::byteSize(it->received, str::ByteSize::Exact);
+            line = _played == Played::Waiting
+                       ? arg(tr("Downloading %1 \xE2\x80\x94 it opens in your video player when "
+                                "it\xE2\x80\x99s done"),
+                             got)
+                       : arg(tr("Downloading %1"), got);
+        } else if (_played == Played::Waiting) {
+            line = tr("Starting\xE2\x80\xA6");
+        } else if (_played == Played::Opened) {
+            line = RemoteImages::isRemote(_file.source())
+                       ? std::string(
+                             tr("Opened in your video player. It\xE2\x80\x99s saved in "
+                                "your Downloads folder.")
+                         )
+                       : std::string(tr("Opened in your video player"));
+        } else if (_played == Played::Failed) {
+            line = tr("Couldn\xE2\x80\x99t download the video");
+        } else if (_played == Played::Cancelled) {
+            line = tr("Download cancelled");
+        }
+        _play->setProgress(
+            running ? (it->total > 0 ? std::min(1.f, float(it->received) / float(it->total)) : 0.f)
+                    : -1.f
+        );
+        text::AttributedText t;
+        t.append(line, ui::pxFont(14, text::Weight::Regular, ui::color(C::OnDarkDim)));
+        _status->setRichText(std::move(t));
+        _status->setAlign(text::LayoutOptions::Align::Center);
+        _status->setVisible(!line.empty());
+        invalidateLayout();
     }
     void step(int dir) {
         Ts                 t = 0;
@@ -349,9 +447,11 @@ private:
     }
     ui::RectF imageRect() const {
         // With arrows, the picture keeps clear of them.
-        const float     side = _list ? kMargin + kNav + 12 : kMargin;
+        const float     side  = _list ? kMargin + kNav + 12 : kMargin;
+        // A video keeps a line under it for what Play is doing.
+        const float     below = _file.isVideo() && _list ? kStatusH : 0;
         const ui::RectF avail{
-            side, kBarH + kMargin / 2, width() - 2 * side, height() - kBarH - kMargin * 1.5f
+            side, kBarH + kMargin / 2, width() - 2 * side, height() - kBarH - kMargin * 1.5f - below
         };
         if (avail.w <= 0 || avail.h <= 0)
             return {};
@@ -377,8 +477,13 @@ private:
     ui::Label    *_name     = nullptr;
     ViewerButton *_download = nullptr, *_forward = nullptr, *_browser = nullptr, *_more = nullptr;
     NavButton    *_prev = nullptr, *_next = nullptr;
-    PlayButton   *_play  = nullptr;
+    PlayButton   *_play   = nullptr;
+    ui::Label    *_status = nullptr;
     CachedImage  *_thumb = nullptr, *_full = nullptr;
+    Played        _played                  = Played::No;
+    int           _request                 = 0;
+    model::Downloads::ObserverId _observer = 0;
+    std::shared_ptr<char>        _alive    = std::make_shared<char>();
 };
 
 // A label's text in window coordinates, not clipped by the list: in a message
@@ -2787,16 +2892,18 @@ void MessageList::openHtmlFile(const model::File &f) {
     openLocalCopy(f, f.path, std::move(name));
 }
 
-void MessageList::playVideo(const model::File &f) {
-    // The original upload (a thumb is only the poster), under a name whose
-    // extension says what it is: the OS picks the player by it.
+void MessageList::playVideo(
+    const model::File &f, std::function<void(model::Downloads::State)> done
+) {
+    // The original upload (a thumb is only the poster), into Downloads under
+    // a name whose extension says what it is: the OS picks the player by it.
     std::string name = safeFileName(f.name.empty() ? std::string(tr("video")) : f.name);
     if (!str::startsWith(mime::fromName(name), "video/")) {
         const std::string_view ext = mime::extension(f.mime);
         if (!ext.empty())
             name = str::concat({name, ".", ext});
     }
-    openLocalCopy(f, f.source(), std::move(name));
+    openFromDownloads(_ctx, std::move(name), f.source(), f.size, std::move(done));
 }
 
 void MessageList::openLocalCopy(const model::File &f, const std::string &source, std::string name) {

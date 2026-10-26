@@ -2,6 +2,7 @@
 
 #include "app/model/downloads.h"
 #include "app/model/jobs.h"
+#include "app/screens/common/context.h"
 #include "app/screens/common/remote_images.h"
 #include "base/crypto.h"
 #include "base/file.h"
@@ -59,7 +60,12 @@ std::string freeDownloadPath(
 }
 
 void downloadToFolder(
-    plat::App &app, model::Backend &backend, std::string name, std::string source, int64_t size
+    plat::App               &app,
+    model::Backend          &backend,
+    std::string              name,
+    std::string              source,
+    int64_t                  size,
+    std::function<void(int)> started
 ) {
     std::string dir = app.standardDir(plat::StandardDir::Downloads);
     if (dir.empty())
@@ -85,18 +91,22 @@ void downloadToFolder(
             if (file::makeDirs(dir))
                 *path = freeDownloadPath(dir, base, taken);
         },
-        [&app, &backend, path, base, source = std::move(source), size] {
+        [&app, &backend, path, base, source = std::move(source), size, started] {
             if (path->empty()) {
-                const int id = model::downloads().begin(base, {}, size);
+                const int id = model::downloads().begin(base, {}, size, source);
+                if (started)
+                    started(id);
                 model::downloads().finish(id, false, "no_folder");
                 return;
             }
             if (model::downloads().reserved(*path)) { // another one took it meanwhile
-                downloadToFolder(app, backend, base, source, size);
+                downloadToFolder(app, backend, base, source, size, started);
                 return;
             }
-            const int id   = model::downloads().begin(base, *path, size);
-            auto      done = [id](bool ok, const std::string &err) {
+            const int id = model::downloads().begin(base, *path, size, source);
+            if (started)
+                started(id);
+            auto done = [id](bool ok, const std::string &err) {
                 if (!ok && err != "cancelled")
                     LOG_WARN("downloads", "Download failed: %s", err.c_str());
                 model::downloads().finish(id, ok, err);
@@ -112,6 +122,58 @@ void downloadToFolder(
                 done
             );
             model::downloads().setStop(id, std::move(stop));
+        }
+    );
+}
+
+void openFromDownloads(
+    Context                                     &ctx,
+    std::string                                  name,
+    std::string                                  source,
+    int64_t                                      size,
+    std::function<void(model::Downloads::State)> done
+) {
+    using S   = model::Downloads::State;
+    auto open = [&ctx, done](const model::Downloads::Item &it) {
+        if (it.state == S::Done && ctx.openUrl)
+            ctx.openUrl(file::toFileUrl(it.path));
+        if (done)
+            done(it.state);
+    };
+    if (!RemoteImages::isRemote(source)) { // already on this disk
+        if (ctx.openUrl)
+            ctx.openUrl(file::toFileUrl(source));
+        if (done)
+            done(S::Done);
+        return;
+    }
+    const model::Downloads::Item *it = model::downloads().latest(source);
+    if (it && it->state == S::Running) { // pressed again meanwhile: the same download
+        model::downloads().whenDone(it->id, open);
+        return;
+    }
+    auto fresh = [&ctx, name, source, size, open] {
+        downloadToFolder(ctx.app.platform(), ctx.backend, name, source, size, [open](int id) {
+            model::downloads().whenDone(id, open);
+        });
+    };
+    if (!it || it->state != S::Done) {
+        fresh();
+        return;
+    }
+    // Downloaded before: that copy, if it is still where it was put.
+    auto       here = std::make_shared<bool>(false);
+    const auto kept = std::make_shared<model::Downloads::Item>(*it);
+    kept->stop      = nullptr;
+    kept->waiter    = nullptr;
+    model::runInBackground(
+        ctx.app.platform(),
+        [here, path = kept->path] { *here = file::size(path) > 0; },
+        [here, kept, open, fresh] {
+            if (*here)
+                open(*kept);
+            else
+                fresh();
         }
     );
 }

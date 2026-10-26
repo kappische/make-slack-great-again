@@ -40,6 +40,7 @@
 //    loaded conversation with nothing in it says "No messages yet".
 #pragma once
 
+#include "app/model/downloads.h"
 #include "app/screens/messages/context_fwd.h"
 
 #include <cstdint>
@@ -239,11 +240,11 @@ public:
     bool viewerNeighbour(
         Ts ts, const std::string &path, int step, Ts *nextTs, const model::File **next
     ) const;
-    void               openHtmlFile(const model::File &f);
-    // A video in the OS's default player (msga decodes no video): the
-    // original fetched once to the cache, then opened from there.
-    void               playVideo(const model::File &f);
-    void               openCanvas(const model::File &f);
+    void openHtmlFile(const model::File &f);
+    // A video in the OS's default player (msga decodes no video), from the
+    // Downloads folder (screens/common/downloads.h: openFromDownloads).
+    void playVideo(const model::File &f, std::function<void(model::Downloads::State)> done);
+    void openCanvas(const model::File &f);
     // A canvas card's preview HTML (null while loading, *state -1 if it
     // failed); the cards showing it are bound again when it arrives.
     const std::string *canvasPreview(const std::string &fileId, int *state);

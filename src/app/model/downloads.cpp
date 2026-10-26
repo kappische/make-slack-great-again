@@ -29,6 +29,8 @@ std::string serialize(const std::vector<Downloads::Item> &items) {
         w.beginObject();
         w.key("name").value(it.name);
         w.key("path").value(it.path);
+        if (!it.source.empty())
+            w.key("source").value(it.source);
         w.key("size").value(it.total);
         w.key("at").value(it.at);
         w.key("state").value(kStateNames[size_t(it.state)]);
@@ -49,13 +51,14 @@ struct Downloads::Saver {
     uint64_t   queued = 0, written = 0;
 };
 
-int Downloads::begin(std::string name, std::string path, int64_t size) {
+int Downloads::begin(std::string name, std::string path, int64_t size, std::string source) {
     Item it;
-    it.id    = _nextId++;
-    it.name  = std::move(name);
-    it.path  = std::move(path);
-    it.total = size > 0 ? size : 0;
-    it.at    = base::nowSecs();
+    it.id     = _nextId++;
+    it.name   = std::move(name);
+    it.path   = std::move(path);
+    it.source = std::move(source);
+    it.total  = size > 0 ? size : 0;
+    it.at     = base::nowSecs();
     _items.insert(_items.begin(), std::move(it));
     trim();
     changed(true);
@@ -92,8 +95,26 @@ void Downloads::finish(int id, bool ok, std::string error) {
         it->state = error == "cancelled" ? State::Cancelled : State::Failed;
         it->error = std::move(error);
     }
+    std::function<void(const Item &)> waiter = std::exchange(it->waiter, nullptr);
+    const Item                        done   = *it; // the waiter may change the list
     trim();
     changed(true);
+    if (waiter)
+        waiter(done);
+}
+
+void Downloads::whenDone(int id, std::function<void(const Item &)> fn) {
+    Item *it = at(id);
+    if (!it || it->state != State::Running || !fn)
+        return;
+    if (!it->waiter) {
+        it->waiter = std::move(fn);
+        return;
+    }
+    it->waiter = [first = std::move(it->waiter), fn = std::move(fn)](const Item &i) {
+        first(i);
+        fn(i);
+    };
 }
 
 void Downloads::cancel(int id) {
@@ -121,6 +142,15 @@ void Downloads::clearFinished() {
     std::erase_if(_items, [](const Item &it) { return it.state != State::Running; });
     if (_items.size() != n)
         changed(true);
+}
+
+const Downloads::Item *Downloads::latest(std::string_view source) const {
+    if (source.empty())
+        return nullptr;
+    for (const Item &it : _items)
+        if (it.source == source)
+            return &it;
+    return nullptr;
 }
 
 const Downloads::Item *Downloads::find(int id) const {
@@ -204,9 +234,10 @@ void Downloads::setFile(plat::App &app, std::string path) {
                 return;
             for (const json::Value v : doc.root()) {
                 Item it;
-                it.name  = json::owned(v["name"]);
-                it.path  = json::owned(v["path"]);
-                it.error = json::owned(v["error"]);
+                it.name   = json::owned(v["name"]);
+                it.path   = json::owned(v["path"]);
+                it.source = json::owned(v["source"]);
+                it.error  = json::owned(v["error"]);
                 it.total = it.received = v["size"].integer();
                 it.at                  = v["at"].integer();
                 it.state               = stateNamed(v["state"].str());
