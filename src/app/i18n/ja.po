@@ -3242,6 +3242,10 @@ msgid "Remove idle session from msga"
 msgstr "待機中のセッションをmsgaから削除"
 
 #: src/app/screens/shell/sidebar.cpp
+msgid "Section options"
+msgstr "セクションのオプション"
+
+#: src/app/screens/shell/sidebar.cpp
 msgid "Add sessions"
 msgstr "セッションを追加"
 
@@ -3252,6 +3256,18 @@ msgstr "ダイレクトメッセージを開く"
 #: src/app/screens/shell/sidebar.cpp src/app/screens/shell/threads_page.cpp
 msgid "you"
 msgstr "自分"
+
+#: src/app/screens/shell/sidebar.cpp
+msgid "Sort"
+msgstr "並べ替え"
+
+#: src/app/screens/shell/sidebar.cpp
+msgid "Alphabetically"
+msgstr "アルファベット順"
+
+#: src/app/screens/shell/sidebar.cpp
+msgid "By most recent activity"
+msgstr "最近のアクティビティ順"
 
 #: src/app/screens/shell/sidebar.cpp
 msgid "Starred"

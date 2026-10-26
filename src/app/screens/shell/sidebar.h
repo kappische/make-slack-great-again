@@ -7,6 +7,12 @@
 // for the ones outside the relevant-days window, "Add channels", and the
 // footer (avatar + menu, presence toggle). Over the nav gradient.
 //
+// Each section is sorted as its header's "⋯" menu (or a right click on the
+// header) says, like Slack's: alphabetically, or by most recent activity
+// (the newest message first; rows move up as messages arrive). By default
+// channels and apps go A–Z and direct messages by activity. An agent
+// workspace keeps its backend's order and has no such menu.
+//
 // An agent workspace (Capabilities::agentSessions, Claude Code) calls the
 // direct messages "Sessions" and ends them with "Add sessions" (its "+" and
 // that row open the find-or-create menu), and lists the team
@@ -69,14 +75,26 @@ public:
     ~Sidebar() override;
 
     // The Settings → Appearance / Notifications choices the list follows.
+    // A section's sort: alphabetical, or the most recently active first.
+    enum class Sort : uint8_t { Alphabetical, Activity };
     struct Filters {
-        int                relevantDays   = 14;
-        bool               showAgentsApps = true, unreadsOnly = false;
-        bool               highlightMentionsOnly = true; // "Highlight mentions-only channels…"
-        model::NotifyLevel defaultLevel          = model::NotifyLevel::All;
+        int  relevantDays = 14;
+        // Per section kind: Starred, Channels, Direct messages, Agents & apps.
+        Sort sort[4] = {Sort::Alphabetical, Sort::Alphabetical, Sort::Activity, Sort::Alphabetical};
+        bool showAgentsApps = true, unreadsOnly = false;
+        bool highlightMentionsOnly      = true; // "Highlight mentions-only channels…"
+        model::NotifyLevel defaultLevel = model::NotifyLevel::All;
         bool               operator==(const Filters &) const = default;
     };
-    void setFilters(const Filters &f);
+    void             setFilters(const Filters &f);
+    const Filters   &filters() const { return _filters; }
+    // Whether section `kind` (0 Starred … 3 Agents & apps) follows its
+    // Filters::sort: not in an agent workspace, which keeps its backend's
+    // order, nor the Team section.
+    bool             sorted(int kind) const;
+    // A conversation's place under Sort::Activity: its newest message (or the
+    // last one read, when that is newer than what is known).
+    static model::Ts activityOf(const model::Conversation &c);
     // Visit stamps: when each conversation was last opened here (or
     // seen unread), which keeps it listed for the relevant days. The shell
     // persists it (Settings::visitedAt) whenever onVisitedChanged fires.
@@ -114,21 +132,24 @@ public:
     bool                     toggleSection(std::string_view title);
     void                     showAllChannels(); // the "N more channels" row
 
-    std::function<void()>                    onThreads;       // the Threads entry
-    std::function<void()>                    onSavedMessages; // the Saved messages entry
-    std::function<void()>                    onScheduled;     // the Scheduled messages entry
-    std::function<void()>                    onFindChannel;   // "Add channels" → Find a channel
-    std::function<void()>                    onCreateChannel; // "Add channels" → Create a channel
-    std::function<void()>                    onBrowsePeople;  // the Direct messages header's "+"
+    std::function<void()> onThreads;       // the Threads entry
+    std::function<void()> onSavedMessages; // the Saved messages entry
+    std::function<void()> onScheduled;     // the Scheduled messages entry
+    std::function<void()> onFindChannel;   // "Add channels" → Find a channel
+    std::function<void()> onCreateChannel; // "Add channels" → Create a channel
+    std::function<void()> onBrowsePeople;  // the Direct messages header's "+"
+    // A section's sort was changed in its header's menu (section 0 Starred
+    // … 3 Agents & apps); the shell saves it and sets the filters again.
+    std::function<void(int section, Sort sort)> onSortChanged;
     // Agent workspace: the Sessions "+" and "Add sessions", a
     // teammate's row, the Team header's "+".
-    std::function<void(ui::PointF at)>       onSessionMenu;
-    std::function<void(const std::string &)> onTeammate;
-    std::function<void()>                    onAddTeammate;
+    std::function<void(ui::PointF at)>          onSessionMenu;
+    std::function<void(const std::string &)>    onTeammate;
+    std::function<void()>                       onAddTeammate;
     // Highlights a teammate's row as the open page ("" clears it); no
     // conversation is highlighted meanwhile.
-    void                                     selectTeammate(const std::string &role);
-    const std::string                       &selectedTeammate() const { return _selectedTeammate; }
+    void                                        selectTeammate(const std::string &role);
+    const std::string &selectedTeammate() const { return _selectedTeammate; }
     // The entries over the sections, each an overview page: Threads, Saved
     // messages (shown while something is saved, Store::hasSaved), Scheduled
     // messages (while something is scheduled, Store::hasScheduled).
@@ -167,6 +188,11 @@ private:
     void               refreshSections();
     void               refreshNav(); // which of the entries show
     ConvRow           *rowFor(model::ConvRef conv) const;
+    // The section's sort menu ("Sort: Alphabetically / By most recent
+    // activity") at `anchor` (window coordinates).
+    void               showSortMenu(int kind, ui::RectF anchor);
+    // An activity-sorted row that now belongs above the one before it.
+    bool               outOfOrder(const ConvRow &r) const;
     ui::View          *navRow(Nav n) const;
     void               showNavSelection(); // the entries' checked look
     // The unread / effective level (Settings' default) / badge rules.

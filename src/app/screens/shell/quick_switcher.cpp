@@ -35,8 +35,9 @@ std::optional<double> scoreOf(const QuickSwitchName &n, const std::vector<uint32
         return std::nullopt;
     // Group DMs are named after their members, so a person matches every
     // group they are in as well as their DM — and the groups, often more
-    // recent, buried it (issue #61): half a consecutive match.
-    return *s + (n.group ? -0.5 : 0.0);
+    // recent, buried it (issue #61): half a consecutive match. Without a
+    // query there is no match to bury: the sidebar's order stands.
+    return *s + (n.group && !q.empty() ? -0.5 : 0.0);
 }
 
 // A workspace tab's bubble: the rail's 40 px bubble in a slot that

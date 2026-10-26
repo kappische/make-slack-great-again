@@ -810,6 +810,18 @@ Shell::Shell(screens::Context &ctx, Window &win, Settings &settings, std::string
     // The visit stamps come back from the settings and go there again 1.5 s
     // after the last change (coalesced).
     _sidebar->setVisited({_settings.visitedAt.begin(), _settings.visitedAt.end()});
+    _sidebar->onSortChanged = [this](int section, Sidebar::Sort sort) {
+        int *sorts[4] = {
+            &_settings.sortStarred, &_settings.sortChannels, &_settings.sortDms, &_settings.sortApps
+        };
+        if (section < 0 || section > 3)
+            return;
+        *sorts[section] = int(sort);
+        saveSettingsSoon();
+        Sidebar::Filters f = _sidebar->filters();
+        f.sort[section]    = sort;
+        _sidebar->setFilters(f);
+    };
     _sidebar->onVisitedChanged = [this] {
         _ctx.app.cancelTimer(_visitedTimer);
         _visitedTimer = _ctx.app.addTimer(1500, false, [this] {
@@ -3101,6 +3113,11 @@ void Shell::applySettings() {
     f.unreadsOnly           = _settings.unreadsOnly;
     f.highlightMentionsOnly = _settings.boldMentionsOnly;
     f.defaultLevel          = defaultLevel();
+    const int *sorts[4]     = {
+        &_settings.sortStarred, &_settings.sortChannels, &_settings.sortDms, &_settings.sortApps
+    };
+    for (int s = 0; s < 4; ++s)
+        f.sort[s] = Sidebar::Sort(*sorts[s]);
     _sidebar->setFilters(f);
     for (const auto &r : _running)
         r->dirty = true; // the default level decides what counts
