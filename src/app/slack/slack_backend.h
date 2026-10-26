@@ -161,6 +161,14 @@ public:
     LocalResult          runLocalCommand(
         model::ConvRef conv, model::Ts thread, const std::string &name, const std::string &args
     ) override;
+    // Channel details: conversations.rename / setTopic / setPurpose /
+    // archive / invite / kick.
+    void renameChannel(model::ConvRef c, std::string name, Done done) override;
+    void setChannelTopic(model::ConvRef c, std::string topic, Done done) override;
+    void setChannelDescription(model::ConvRef c, std::string text, Done done) override;
+    void archiveChannel(model::ConvRef c, Done done) override;
+    void addToChannel(model::ConvRef c, model::UserRef u, Done done) override;
+    void removeFromChannel(model::ConvRef c, model::UserRef u, Done done) override;
     // /dnd: dnd.setSnooze for `minutes`, dnd.endSnooze for 0.
     void setDndSnooze(int minutes, Done done);
     void

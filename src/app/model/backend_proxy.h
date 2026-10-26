@@ -39,6 +39,12 @@ public:
     void deleteFile(ConvRef c, Ts ts, const std::string &fileId) override;
     void deleteAttachment(ConvRef c, Ts ts, int attachmentId, Done d) override;
     void downloadFile(const std::string &url, std::string toPath, Done done) override;
+    void renameChannel(ConvRef c, std::string name, Done done) override;
+    void setChannelTopic(ConvRef c, std::string topic, Done done) override;
+    void setChannelDescription(ConvRef c, std::string text, Done done) override;
+    void archiveChannel(ConvRef c, Done done) override;
+    void addToChannel(ConvRef c, UserRef u, Done done) override;
+    void removeFromChannel(ConvRef c, UserRef u, Done done) override;
     void setReminder(ConvRef c, Ts ts, int64_t due) override;
     bool isAgentSession(ConvRef c) const override;
     bool canStopSession(ConvRef c) const override;

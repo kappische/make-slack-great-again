@@ -257,6 +257,7 @@ struct Conversation {
     std::string          id;
     std::string          name; // channel name without '#'; DMs: the peer's handle
     std::string          topic;
+    std::string          purpose; // a channel's description ("" for none)
     ConvKind             kind   = ConvKind::Channel;
     UserRef              dmUser = kNoUser; // Dm peer
     std::vector<UserRef> members;          // Group participants (me included)

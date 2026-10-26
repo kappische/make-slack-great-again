@@ -64,7 +64,7 @@ msgstr "表示"
 msgid "Hide"
 msgstr "非表示"
 
-#: src/ui/controls.cpp src/ui/filebrowser.cpp src/app/screens/messages/message_dialogs.cpp src/app/screens/settings/settings_pages.cpp src/app/screens/shell/composer.cpp src/app/screens/shell/composer_popups.cpp src/app/screens/shell/scheduled_page.cpp src/app/screens/shell/session_dialogs.cpp src/app/screens/shell/shell_dialogs.cpp src/app/screens/shell/signin_dialogs.cpp src/app/screens/shell/status_dialog.cpp
+#: src/ui/controls.cpp src/ui/filebrowser.cpp src/app/screens/messages/message_dialogs.cpp src/app/screens/settings/settings_pages.cpp src/app/screens/shell/channel_dialogs.cpp src/app/screens/shell/composer.cpp src/app/screens/shell/composer_popups.cpp src/app/screens/shell/scheduled_page.cpp src/app/screens/shell/session_dialogs.cpp src/app/screens/shell/shell_dialogs.cpp src/app/screens/shell/signin_dialogs.cpp src/app/screens/shell/status_dialog.cpp
 msgid "Cancel"
 msgstr "キャンセル"
 
@@ -84,7 +84,7 @@ msgstr "ファイルを開く"
 msgid "Save file"
 msgstr "ファイルを保存"
 
-#: src/ui/filebrowser.cpp src/app/screens/messages/message_dialogs.cpp src/app/screens/settings/settings_dialog.cpp src/app/screens/settings/settings_pages.cpp src/app/screens/shell/composer_popups.cpp src/app/screens/shell/session_dialogs.cpp src/app/screens/shell/shell_dialogs.cpp src/app/screens/shell/status_dialog.cpp
+#: src/ui/filebrowser.cpp src/app/screens/messages/message_dialogs.cpp src/app/screens/settings/settings_dialog.cpp src/app/screens/settings/settings_pages.cpp src/app/screens/shell/channel_dialogs.cpp src/app/screens/shell/composer_popups.cpp src/app/screens/shell/session_dialogs.cpp src/app/screens/shell/shell_dialogs.cpp src/app/screens/shell/status_dialog.cpp
 msgid "Save"
 msgstr "保存"
 
@@ -2441,6 +2441,62 @@ msgstr "人のメンバー"
 msgid "Joined"
 msgstr "参加済み"
 
+#: src/app/screens/shell/channel_dialogs.cpp
+msgid "Add people to #%1"
+msgstr "#%1 にメンバーを追加"
+
+#: src/app/screens/shell/channel_dialogs.cpp
+msgid "Channel name"
+msgstr "チャンネル名"
+
+#: src/app/screens/shell/channel_dialogs.cpp
+msgid "Topic"
+msgstr "トピック"
+
+#: src/app/screens/shell/channel_dialogs.cpp src/app/screens/shell/session_dialogs.cpp
+msgid "Description"
+msgstr "説明"
+
+#: src/app/screens/shell/channel_dialogs.cpp
+msgid "Add people…"
+msgstr "メンバーを追加…"
+
+#: src/app/screens/shell/channel_dialogs.cpp
+msgid "Archive channel…"
+msgstr "チャンネルをアーカイブ…"
+
+#: src/app/screens/shell/channel_dialogs.cpp
+msgid "Couldn't rename the channel: %1"
+msgstr "チャンネル名を変更できませんでした: %1"
+
+#: src/app/screens/shell/channel_dialogs.cpp
+msgid "Couldn't set the topic: %1"
+msgstr "トピックを設定できませんでした: %1"
+
+#: src/app/screens/shell/channel_dialogs.cpp
+msgid "Couldn't set the description: %1"
+msgstr "説明を設定できませんでした: %1"
+
+#: src/app/screens/shell/channel_dialogs.cpp
+msgid "Couldn't add them: %1"
+msgstr "追加できませんでした: %1"
+
+#: src/app/screens/shell/channel_dialogs.cpp
+msgid "Archive #%1?"
+msgstr "#%1 をアーカイブしますか？"
+
+#: src/app/screens/shell/channel_dialogs.cpp
+msgid "No one can post in an archived channel. Its history stays and can still be searched; a workspace admin can bring it back."
+msgstr "アーカイブされたチャンネルには誰も投稿できません。履歴は残り、検索もできます。ワークスペースの管理者は元に戻せます。"
+
+#: src/app/screens/shell/channel_dialogs.cpp
+msgid "Archive channel"
+msgstr "チャンネルをアーカイブ"
+
+#: src/app/screens/shell/channel_dialogs.cpp
+msgid "Couldn't archive the channel: %1"
+msgstr "チャンネルをアーカイブできませんでした: %1"
+
 #: src/app/screens/shell/composer.cpp
 msgid "Message sent"
 msgstr "メッセージを送信しました"
@@ -2684,6 +2740,10 @@ msgid "Stop"
 msgstr "停止"
 
 #: src/app/screens/shell/context_menus.cpp
+msgid "Channel details…"
+msgstr "チャンネルの詳細…"
+
+#: src/app/screens/shell/context_menus.cpp
 msgid "Workspace admin"
 msgstr "ワークスペース管理"
 
@@ -2791,6 +2851,14 @@ msgstr "表示するメンバーがいません。"
 #: src/app/screens/shell/header.cpp
 msgid "No one here matches “%1”."
 msgstr "「%1」に一致するメンバーはいません。"
+
+#: src/app/screens/shell/header.cpp
+msgid "Remove from #%1"
+msgstr "#%1 から削除"
+
+#: src/app/screens/shell/header.cpp
+msgid "Couldn't remove them: %1"
+msgstr "削除できませんでした: %1"
 
 #: src/app/screens/shell/header.cpp src/app/screens/shell/huddle_banner.cpp
 msgid "Opens the huddle in Slack for web"
@@ -2947,10 +3015,6 @@ msgstr "チームメイトを編集"
 #: src/app/screens/shell/session_dialogs.cpp
 msgid "Copywriter"
 msgstr "コピーライター"
-
-#: src/app/screens/shell/session_dialogs.cpp
-msgid "Description"
-msgstr "説明"
 
 #: src/app/screens/shell/session_dialogs.cpp
 msgid "Writes clear, friendly product copy."

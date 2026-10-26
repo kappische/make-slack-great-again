@@ -47,9 +47,14 @@ public:
     // SEARCH HOOK: the search button (toggling the message search). Shell
     // routes it to Shell::openSearch, where the message
     // search lands; the header itself does nothing more.
-    std::function<void()> onSearch;
+    std::function<void()>                    onSearch;
+    // A click on a channel's name (not on macOS, where the name drags the
+    // window): its details, where the service edits them.
+    std::function<void(model::ConvRef)>      onDetails;
+    // A member list's action failed (Remove from #channel): the banner.
+    std::function<void(const std::string &)> onError;
     // The member list: shown under `anchor` (window rect).
-    void                  openMembers(ui::RectF anchor);
+    void                                     openMembers(ui::RectF anchor);
 
 private:
     screens::Context               &_ctx;

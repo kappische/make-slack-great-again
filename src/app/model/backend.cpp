@@ -22,6 +22,32 @@ void Backend::setPinned(ConvRef, Ts, bool) {}
 void Backend::setSaved(ConvRef, Ts, bool) {}
 void Backend::deleteFile(ConvRef, Ts, const std::string &) {}
 void Backend::setReminder(ConvRef, Ts, int64_t) {}
+
+namespace {
+void unsupported(const Backend::Done &done) {
+    if (done)
+        done(false, "not supported");
+}
+} // namespace
+
+void Backend::renameChannel(ConvRef, std::string, Done done) {
+    unsupported(done);
+}
+void Backend::setChannelTopic(ConvRef, std::string, Done done) {
+    unsupported(done);
+}
+void Backend::setChannelDescription(ConvRef, std::string, Done done) {
+    unsupported(done);
+}
+void Backend::archiveChannel(ConvRef, Done done) {
+    unsupported(done);
+}
+void Backend::addToChannel(ConvRef, UserRef, Done done) {
+    unsupported(done);
+}
+void Backend::removeFromChannel(ConvRef, UserRef, Done done) {
+    unsupported(done);
+}
 void Backend::userTyping(ConvRef, Ts) {}
 
 // A reply sent to the channel too sits in the channel's list without its

@@ -34,6 +34,7 @@ constexpr ui::MenuDef kDefs[] = {
     {Menus::kRename, kNone, N_("Name conversation…"), nullptr, nullptr},
     {Menus::kLeave, kNone, N_("Leave channel"), N_("Leave conversation"), nullptr},
     {Menus::kStopSession, kNone, N_("Stop"), nullptr, nullptr},
+    {Menus::kDetails, kNone, N_("Channel details\xE2\x80\xA6"), nullptr, nullptr},
     {Menus::kWorkspaceAdmin, kNone, N_("Workspace admin"), nullptr, nullptr},
     {Menus::kChangeIcon, kNone, N_("Change icon…"), nullptr, nullptr},
     {Menus::kMuteWorkspace, kNone, N_("Mute"), nullptr, nullptr},
@@ -97,6 +98,8 @@ std::vector<ui::MenuItem> Menus::chatItems(ConvRef c) const {
     }
     notifySection(items, _shell.sidebar().level(cv));
     ui::addMenuSeparator(items);
+    if (!direct && _ctx.backend.capabilities().channelEditing)
+        add(items, kDetails);
     add(items, kLeave, direct);
     return items;
 }
@@ -188,6 +191,9 @@ void Menus::run(int id, uint32_t target) {
             break;
         case kRename:
             _shell.renameConversation(target);
+            break;
+        case kDetails:
+            _shell.showChannelDetails(target);
             break;
         case kLeave: {
             // Leaving the open conversation: go to its neighbour first.

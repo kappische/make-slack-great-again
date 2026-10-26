@@ -78,6 +78,14 @@ public:
     void         setPresence(bool away, Done done) override;
     void         setStatus(std::string emoji, std::string text, int64_t expiry, Done done) override;
     void         loadMembers(model::ConvRef conv, MembersDone done) override;
+    // Channel details on the Store (a channel's members become explicit at
+    // the first add or remove).
+    void         renameChannel(model::ConvRef c, std::string name, Done done) override;
+    void         setChannelTopic(model::ConvRef c, std::string topic, Done done) override;
+    void         setChannelDescription(model::ConvRef c, std::string text, Done done) override;
+    void         archiveChannel(model::ConvRef c, Done done) override;
+    void         addToChannel(model::ConvRef c, model::UserRef u, Done done) override;
+    void         removeFromChannel(model::ConvRef c, model::UserRef u, Done done) override;
     // My profile round-trips through the Store (the phone is kept here).
     void         loadMyProfile(std::function<void(MyProfile)> done) override;
     void updateProfile(std::string name, std::string email, std::string phone, Done done) override;
@@ -119,6 +127,7 @@ public:
     static constexpr int kUnfurlDelayMs = 900;
 
 private:
+    void explicitMembers(model::ConvRef c);
     enum class ConvFlag : uint8_t { Starred, Muted, Notify, Member };
     void           setConvFlag(model::ConvRef conv, ConvFlag f, int v);
     void           setMessageFlag(model::ConvRef conv, model::Ts ts, bool pinFlag, bool on);

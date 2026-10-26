@@ -360,6 +360,7 @@ FakeBackend::Capabilities FakeBackend::capabilities() const {
     c.messageReminders = true;
     c.canvases         = true;
     c.fileUpload       = true;
+    c.channelEditing   = true;
     return c;
 }
 
@@ -399,6 +400,76 @@ void FakeBackend::loadMembers(ConvRef conv, MembersDone done) {
         if (done)
             done(members, {});
     });
+}
+
+void FakeBackend::renameChannel(ConvRef c, std::string name, Done done) {
+    later(kReadLatencyMs, [this, c, name = std::move(name), done = std::move(done)] {
+        _store.updateConversation(c, [&](model::Conversation &x) { x.name = name; });
+        if (done)
+            done(true, {});
+    });
+}
+
+void FakeBackend::setChannelTopic(ConvRef c, std::string topic, Done done) {
+    later(kReadLatencyMs, [this, c, topic = std::move(topic), done = std::move(done)] {
+        _store.updateConversation(c, [&](model::Conversation &x) { x.topic = topic; });
+        if (done)
+            done(true, {});
+    });
+}
+
+void FakeBackend::setChannelDescription(ConvRef c, std::string text, Done done) {
+    later(kReadLatencyMs, [this, c, text = std::move(text), done = std::move(done)] {
+        _store.updateConversation(c, [&](model::Conversation &x) { x.purpose = text; });
+        if (done)
+            done(true, {});
+    });
+}
+
+void FakeBackend::archiveChannel(ConvRef c, Done done) {
+    later(kReadLatencyMs, [this, c, done = std::move(done)] {
+        _store.updateConversation(c, [](model::Conversation &x) { x.member = false; });
+        if (done)
+            done(true, {});
+    });
+}
+
+void FakeBackend::addToChannel(ConvRef c, model::UserRef u, Done done) {
+    later(kReadLatencyMs, [this, c, u, done = std::move(done)] {
+        explicitMembers(c);
+        _store.updateConversation(c, [u](model::Conversation &x) {
+            if (std::find(x.members.begin(), x.members.end(), u) == x.members.end()) {
+                x.members.push_back(u);
+                x.memberCount = uint32_t(x.members.size());
+            }
+        });
+        if (done)
+            done(true, {});
+    });
+}
+
+void FakeBackend::removeFromChannel(ConvRef c, model::UserRef u, Done done) {
+    later(kReadLatencyMs, [this, c, u, done = std::move(done)] {
+        explicitMembers(c);
+        _store.updateConversation(c, [u](model::Conversation &x) {
+            std::erase(x.members, u);
+            x.memberCount = uint32_t(x.members.size());
+        });
+        if (done)
+            done(true, {});
+    });
+}
+
+// A fixture channel lists no members (loadMembers gives it everyone): the
+// first change makes that list its own.
+void FakeBackend::explicitMembers(ConvRef c) {
+    if (c >= _store.conversationCount() || !_store.conversation(c).members.empty())
+        return;
+    std::vector<model::UserRef> all;
+    for (model::UserRef u = 0; u < _store.userCount(); ++u)
+        if (!_store.user(u).bot && !_store.user(u).placeholder)
+            all.push_back(u);
+    _store.updateConversation(c, [&](model::Conversation &x) { x.members = std::move(all); });
 }
 
 int64_t FakeBackend::nowSecs() const {

@@ -804,6 +804,62 @@ TEST("slack write: pins, stars, leave, members, DMs") {
     e.be->onError = nullptr;
 }
 
+TEST("slack write: channel details — rename, topic, description, invite, kick, archive") {
+    if (!haveServer())
+        return;
+    Env e;
+    e.be->onError = [](const std::string &) {};
+    e.store.updateConversation(e.general, [](model::Conversation &c) { c.memberCount = 3; });
+    // The rename takes the name Slack settled on (it normalises).
+    script("conversations.rename", R"([{"ok":true,"channel":{"id":"C1","name":"team-news"}}])");
+    Result rn, tp, ds, in, kk, ar;
+    e.be->renameChannel(e.general, "Team news", rn.cb());
+    e.be->setChannelTopic(e.general, "Ship it", tp.cb());
+    e.be->setChannelDescription(e.general, "Where we talk", ds.cb());
+    e.be->addToChannel(e.general, e.mira, in.cb());
+    REQUIRE(pumpUntil([&] { return rn.called && tp.called && ds.called && in.called; }));
+    CHECK(rn.ok && tp.ok && ds.ok && in.ok);
+    const auto &c = e.store.conversation(e.general);
+    CHECK_STR(c.name, "team-news");
+    CHECK_STR(c.topic, "Ship it");
+    CHECK_STR(c.purpose, "Where we talk");
+    CHECK(c.memberCount == 4);
+    e.be->removeFromChannel(e.general, e.mira, kk.cb());
+    REQUIRE(pumpUntil([&] { return kk.called; }));
+    CHECK(kk.ok);
+    CHECK(e.store.conversation(e.general).memberCount == 3);
+    {
+        Log log;
+        CHECK_STR(log.get("conversations.rename")["form"]["name"].str(), "Team news");
+        CHECK_STR(log.get("conversations.setTopic")["form"]["topic"].str(), "Ship it");
+        CHECK_STR(log.get("conversations.setPurpose")["form"]["purpose"].str(), "Where we talk");
+        CHECK_STR(log.get("conversations.invite")["form"]["users"].str(), "UMIRA");
+        CHECK_STR(log.get("conversations.kick")["form"]["user"].str(), "UMIRA");
+        CHECK_STR(log.get("conversations.kick")["form"]["channel"].str(), "C1");
+    }
+    // A refusal leaves the Store as it was and says why.
+    script("conversations.setTopic", R"([{"ok":false,"error":"not_in_channel"}])");
+    Result bad;
+    e.be->setChannelTopic(e.general, "Nope", bad.cb());
+    REQUIRE(pumpUntil([&] { return bad.called; }));
+    CHECK_FALSE(bad.ok);
+    CHECK_STR(bad.err, "not_in_channel");
+    CHECK_STR(e.store.conversation(e.general).topic, "Ship it");
+    // Unknown people never reach the server.
+    Result nobody;
+    e.be->addToChannel(e.general, model::UserRef(999), nobody.cb());
+    REQUIRE(pumpUntil([&] { return nobody.called; }));
+    CHECK_FALSE(nobody.ok);
+    CHECK(Log().count("conversations.invite") == 1);
+    // Archived: no longer a channel I'm in.
+    e.be->archiveChannel(e.general, ar.cb());
+    REQUIRE(pumpUntil([&] { return ar.called; }));
+    CHECK(ar.ok);
+    CHECK_FALSE(e.store.conversation(e.general).member);
+    CHECK_STR(Log().get("conversations.archive")["form"]["channel"].str(), "C1");
+    e.be->onError = nullptr;
+}
+
 TEST("slack write: status, profile and photo") {
     if (!haveServer())
         return;

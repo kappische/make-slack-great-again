@@ -29,6 +29,7 @@ constexpr float kRowH = BrowseList::kRowH, kAvatar = 36;
 // the badge. Recycled: bind() refills it for another item.
 class BrowseRow final : public Clickable {
 public:
+    std::function<void(PointF at)> onMenu; // a right click (BrowseList::onMenu)
     BrowseRow() {
         setRole(Role::ListItem);
         style().row().height(kRowH).items(Align::Center).noShrink();
@@ -100,6 +101,10 @@ public:
         // The list activates on press (unless it waits for the click).
         if (_onPress && e.type == EventType::PointerDown && e.button == plat::Button::Left) {
             activate();
+            return true;
+        }
+        if (e.type == EventType::ContextMenu && onMenu) {
+            onMenu(e.windowPos);
             return true;
         }
         return Clickable::onEvent(e);
@@ -495,6 +500,10 @@ void BrowseList::bindRow(View &v, int index) {
     row.onClick = [this, id = items[shown[size_t(index)]].id] {
         if (onActivated)
             onActivated(id);
+    };
+    row.onMenu = [this, id = items[shown[size_t(index)]].id](PointF at) {
+        if (onMenu)
+            onMenu(id, at);
     };
 }
 

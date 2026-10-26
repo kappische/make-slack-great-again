@@ -609,7 +609,7 @@ TEST("menus: channel, DM, group DM and workspace menus, item by item") {
     CHECK_STR(
         labels(m.chatItems(h.conv("C0ENG"))),
         "Star channel|-|Notify you about…|All new posts(on)|Just mentions|Mute and hide|-|"
-        "Leave channel"
+        "Channel details…|Leave channel"
     );
     const auto eng = m.chatItems(h.conv("C0ENG"));
     CHECK(eng[2].header);
@@ -1572,6 +1572,75 @@ TEST("create a channel: a name, Next, Private, Create — the backend makes it")
     REQUIRE(made != kNoConv);
     CHECK(h.store.conversation(made).kind == ConvKind::Private);
     CHECK(h.store.conversation(made).member);
+}
+
+TEST("channel details: rename, topic and description save; add people; archive asks first") {
+    Harness       h;
+    const ConvRef eng    = h.conv("C0ENG");
+    const auto    name0  = h.store.conversation(eng).name;
+    const auto    topic0 = h.store.conversation(eng).topic;
+    h.sh->menus().run(shell::Menus::kDetails, eng);
+    pump();
+    REQUIRE(h.win->topPopup() != nullptr);
+    // Each field holds what is there now; only the changes are sent.
+    typeInto(*h.win, " Core"); // the name, normalised as Slack does
+    press(*h.win, plat::Key::Tab);
+    typeInto(*h.win, " now");
+    press(*h.win, plat::Key::Tab);
+    typeInto(*h.win, "Where builds happen");
+    press(*h.win, plat::Key::Enter);
+    pump(30);
+    CHECK(h.win->topPopup() == nullptr);
+    CHECK_STR(h.store.conversation(eng).name, name0 + "-core");
+    CHECK_STR(h.store.conversation(eng).topic, topic0 + " now");
+    CHECK_STR(h.store.conversation(eng).purpose, "Where builds happen");
+
+    // Add people…: a search, a pick, and they're a member.
+    model::UserRef jonas = model::kNoUser;
+    for (model::UserRef u = 0; u < h.store.userCount(); ++u)
+        if (h.store.user(u).name == "jonas")
+            jonas = u;
+    REQUIRE(jonas != model::kNoUser);
+    auto isMember = [&] {
+        const auto &m = h.store.conversation(eng).members;
+        return std::find(m.begin(), m.end(), jonas) != m.end();
+    };
+    h.backend.removeFromChannel(eng, jonas, nullptr);
+    pump(30);
+    REQUIRE(!isMember());
+    h.sh->menus().run(shell::Menus::kDetails, eng);
+    pump();
+    auto *add = findNamed(h.win->topPopup(), "Add people\xE2\x80\xA6");
+    REQUIRE(add != nullptr);
+    static_cast<ui::Clickable *>(add)->activate();
+    pump();
+    typeInto(*h.win, "jonas");
+    press(*h.win, plat::Key::Down);
+    press(*h.win, plat::Key::Enter);
+    pump(30);
+    CHECK(h.win->topPopup() == nullptr);
+    CHECK(isMember());
+
+    // Archive channel…: a confirmation first; Cancel keeps it.
+    h.sh->menus().run(shell::Menus::kDetails, eng);
+    pump();
+    auto *archive = findNamed(h.win->topPopup(), "Archive channel\xE2\x80\xA6");
+    REQUIRE(archive != nullptr);
+    static_cast<ui::Clickable *>(archive)->activate();
+    pump();
+    auto *ask = h.win->topPopup();
+    REQUIRE(ask != nullptr);
+    auto *yes = findNamed(ask, "Archive channel");
+    REQUIRE(yes != nullptr);
+    static_cast<ui::Clickable *>(yes)->activate();
+    pump(30);
+    CHECK(h.win->topPopup() == nullptr);
+    CHECK_FALSE(h.store.conversation(eng).member);
+    // DMs have no details.
+    CHECK(
+        shell::showChannelDetails(h.ctx, *h.win, h.sh->avatars(), h.conv("D0MIRA"), nullptr) ==
+        nullptr
+    );
 }
 
 TEST("undo send: the pill for 5 s, Ctrl+Z or a click takes the message back") {

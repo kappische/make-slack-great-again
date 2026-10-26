@@ -407,7 +407,8 @@ model::Conversation toConversation(const json::Value &o, model::Store &store) {
         for (const Value m : o["members"])
             c.members.push_back(store.internUser(m.str()));
     const std::string topic = trimmed(o["topic"]["value"]);
-    c.topic                 = !topic.empty() ? topic : trimmed(o["purpose"]["value"]);
+    c.topic                 = topic;
+    c.purpose               = trimmed(o["purpose"]["value"]);
     c.member                = o["is_member"].boolean(true);
     c.memberCount           = uint32_t(o["num_members"].integer());
     c.lastRead              = model::parseTs(o["last_read"].str());

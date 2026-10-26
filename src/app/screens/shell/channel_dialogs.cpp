@@ -283,7 +283,9 @@ std::vector<BrowseList::Item> channelItems(const model::Store &store) {
     std::vector<BrowseList::Item> items;
     items.reserve(channels.size());
     for (ConvRef r : channels) {
-        const model::Conversation &c = store.conversation(r);
+        const model::Conversation &c     = store.conversation(r);
+        // The topic, else the description (Slack's directory does the same).
+        const std::string         &about = c.topic.empty() ? c.purpose : c.topic;
         BrowseList::Item           it;
         it.id    = c.id;
         it.title = c.name;
@@ -293,15 +295,15 @@ std::vector<BrowseList::Item> channelItems(const model::Store &store) {
                 str::number(c.memberCount),
                 c.memberCount == 1 ? tr("member") : tr("members")
             );
-            if (!c.topic.empty())
-                it.subtitle += " \xC2\xB7 " + c.topic;
+            if (!about.empty())
+                it.subtitle += " \xC2\xB7 " + about;
         } else {
-            it.subtitle = c.topic;
+            it.subtitle = about;
         }
         it.titleIcon = uint16_t(convIcon(c));
         if (c.member)
             it.badge = tr("Joined");
-        it.searchKey = utf8::foldCase(str::concat({c.name, " ", c.topic}));
+        it.searchKey = utf8::foldCase(str::concat({c.name, " ", about}));
         items.push_back(std::move(it));
     }
     return items;
@@ -366,6 +368,137 @@ Popup *showFindChannel(
         raw->selectTab(1);
     w.showPopup(std::move(d));
     raw->search().edit().focus();
+    return raw;
+}
+
+namespace {
+
+// "Add people to #name": a search over the workspace's people; a pick is
+// done(u) (the dialog closed).
+class AddPeopleDialog final : public Dialog {
+public:
+    AddPeopleDialog(
+        screens::Context &ctx, Avatars &avatars, ConvRef conv, std::function<void(UserRef)> done
+    )
+        : Dialog(i18n::arg(tr("Add people to #%1"), ctx.store().conversation(conv).name), 520),
+          _ctx(ctx), _done(std::move(done)) {
+        _search = content()->add<TextField>(
+            tr("Search for people"), TextField::Size::Normal, uint16_t(Icon::Search)
+        );
+        auto *box = content()->add<View>();
+        box->style().stack().height(kVisibleRows * BrowseList::kRowH).noShrink();
+        _list = box->add<BrowseList>(avatars);
+        _list->setItems(peopleItems(ctx.store));
+        _list->onActivated = [this](const std::string &id) {
+            const UserRef u    = _ctx.store().findUser(id);
+            auto          done = _done;
+            accept();
+            if (u != model::kNoUser && done)
+                done(u);
+        };
+        _search->edit().onChange = [this] { _list->applyFilter(_search->text()); };
+        _search->edit().onKey    = [this](const Event &e) { return _list->navKey(e); };
+    }
+    TextField &search() { return *_search; }
+
+private:
+    screens::Context            &_ctx;
+    std::function<void(UserRef)> _done;
+    TextField                   *_search = nullptr;
+    BrowseList                  *_list   = nullptr;
+};
+
+// A labelled field of the details dialog.
+TextField *detailsField(View *parent, const char *label, const std::string &value, size_t max) {
+    styledLabel(parent, tr(label), pxFont(15, text::Weight::Bold, color(C::FormText)));
+    auto *f = parent->add<TextField>(std::string(), TextField::Size::Normal);
+    f->setMaxLength(max);
+    f->setText(value);
+    return f;
+}
+
+} // namespace
+
+Popup *showChannelDetails(
+    screens::Context                        &ctx,
+    Window                                  &w,
+    Avatars                                 &avatars,
+    ConvRef                                  conv,
+    std::function<void(const std::string &)> onError
+) {
+    if (conv >= ctx.store().conversationCount() || ctx.store().conversation(conv).isDirect())
+        return nullptr;
+    const model::Conversation &cv      = ctx.store().conversation(conv);
+    auto                       d       = std::make_unique<Dialog>("#" + cv.name, 520);
+    View                      *body    = d->content();
+    TextField                 *name    = detailsField(body, N_("Channel name"), cv.name, 80);
+    TextField                 *topic   = detailsField(body, N_("Topic"), cv.topic, 250);
+    TextField                 *purpose = detailsField(body, N_("Description"), cv.purpose, 250);
+    auto                      *more    = body->add<View>();
+    more->style().row().spacing(8).margins(0, 8, 0, 0);
+    auto *add = more->add<Button>(tr("Add people\xE2\x80\xA6"), V::Secondary, Button::Form::Normal);
+    auto *archive =
+        more->add<Button>(tr("Archive channel\xE2\x80\xA6"), V::Danger, Button::Form::Normal);
+    auto *save = Dialog::makeButton(tr("Save"), V::Primary);
+    d->addButtonRow(save, Dialog::makeButton(tr("Cancel"), V::Secondary));
+    Dialog *raw    = d.get();
+    // Each change on its own call; a failure names what it was.
+    auto    failed = [onError](const char *what) {
+        return [onError, what](bool ok, const std::string &err) {
+            if (!ok && onError)
+                onError(i18n::arg(tr(what), err));
+        };
+    };
+    // Read the fields before accept() closes the dialog.
+    save->onClick = [raw, name, topic, purpose, &ctx, conv, failed] {
+        const model::Conversation &c = ctx.store().conversation(conv);
+        const std::string          n = channelName(name->text());
+        const std::string          t(str::trim(topic->text()));
+        const std::string          p(str::trim(purpose->text()));
+        const bool                 rename  = !n.empty() && n != c.name;
+        const bool                 retopic = t != c.topic, repurpose = p != c.purpose;
+        raw->accept();
+        if (rename)
+            ctx.backend.renameChannel(conv, n, failed(N_("Couldn't rename the channel: %1")));
+        if (retopic)
+            ctx.backend.setChannelTopic(conv, t, failed(N_("Couldn't set the topic: %1")));
+        if (repurpose)
+            ctx.backend.setChannelDescription(
+                conv, p, failed(N_("Couldn't set the description: %1"))
+            );
+    };
+    name->onReturn = topic->onReturn = purpose->onReturn = save->onClick;
+    add->onClick                                         = [raw, &ctx, &w, &avatars, conv, failed] {
+        raw->reject();
+        auto p =
+            std::make_unique<AddPeopleDialog>(ctx, avatars, conv, [&ctx, conv, failed](UserRef u) {
+                ctx.backend.addToChannel(conv, u, failed(N_("Couldn't add them: %1")));
+            });
+        auto *search = &p->search();
+        w.showPopup(std::move(p));
+        search->edit().focus();
+    };
+    archive->onClick = [raw, &ctx, &w, conv, failed] {
+        raw->reject();
+        const std::string chan = ctx.store().conversation(conv).name;
+        auto              ask  = std::make_unique<Dialog>(i18n::arg(tr("Archive #%1?"), chan), 440);
+        styledLabel(
+            ask->content(),
+            tr("No one can post in an archived channel. Its history stays and can still be "
+               "searched; a workspace admin can bring it back."),
+            pxFont(15, text::Weight::Regular, color(C::FormText))
+        );
+        auto *yes = Dialog::makeButton(tr("Archive channel"), V::Danger);
+        ask->addButtonRow(yes, Dialog::makeButton(tr("Cancel"), V::Secondary));
+        Dialog *q    = ask.get();
+        yes->onClick = [q, &ctx, conv, failed] {
+            q->accept();
+            ctx.backend.archiveChannel(conv, failed(N_("Couldn't archive the channel: %1")));
+        };
+        w.showPopup(std::move(ask));
+    };
+    w.showPopup(std::move(d));
+    name->edit().focus();
     return raw;
 }
 

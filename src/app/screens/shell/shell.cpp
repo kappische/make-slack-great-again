@@ -1328,6 +1328,8 @@ void Shell::buildMain(View *parent) {
     _header = _mainPane->add<ConvHeader>(_ctx, _avatars);
 #endif
     _header->onSearch     = [this] { openSearch(); };
+    _header->onDetails    = [this](ConvRef c) { showChannelDetails(c); };
+    _header->onError      = [this](const std::string &m) { showError(m); };
     _tabs                 = _mainPane->add<ConvTabs>();
     _tabs->onSelect       = [this](int tab) { showCanvas(tab == 1); };
     // The huddle banner: under the tabs, over the messages.
@@ -2935,6 +2937,14 @@ void Shell::showProfile(model::UserRef u, RectF anchor) {
 
 void Shell::renameConversation(ConvRef c) {
     showRenameDialog(_ctx, _win, c);
+}
+
+void Shell::showChannelDetails(ConvRef c) {
+    if (!_ctx.backend.capabilities().channelEditing)
+        return;
+    shell::showChannelDetails(_ctx, _win, _avatars, c, [this](const std::string &m) {
+        showError(m);
+    });
 }
 
 void Shell::openBrowseDialog(int tab) {

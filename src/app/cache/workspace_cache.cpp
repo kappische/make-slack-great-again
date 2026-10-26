@@ -384,6 +384,7 @@ void fields(IO &io, model::Conversation &c) {
     io.str(c.canvasTitle);
     io.str(c.localName);
     io.str(c.canvasId);
+    io.str(c.purpose);
 }
 
 // ── Files ───────────────────────────────────────────────────────────────────

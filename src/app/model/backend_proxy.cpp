@@ -73,6 +73,24 @@ void BackendProxy::deleteAttachment(ConvRef c, Ts ts, int attachmentId, Done d) 
 void BackendProxy::downloadFile(const std::string &url, std::string toPath, Done done) {
     _t->downloadFile(url, std::move(toPath), std::move(done));
 }
+void BackendProxy::renameChannel(ConvRef c, std::string name, Done done) {
+    _t->renameChannel(c, std::move(name), std::move(done));
+}
+void BackendProxy::setChannelTopic(ConvRef c, std::string topic, Done done) {
+    _t->setChannelTopic(c, std::move(topic), std::move(done));
+}
+void BackendProxy::setChannelDescription(ConvRef c, std::string text, Done done) {
+    _t->setChannelDescription(c, std::move(text), std::move(done));
+}
+void BackendProxy::archiveChannel(ConvRef c, Done done) {
+    _t->archiveChannel(c, std::move(done));
+}
+void BackendProxy::addToChannel(ConvRef c, UserRef u, Done done) {
+    _t->addToChannel(c, u, std::move(done));
+}
+void BackendProxy::removeFromChannel(ConvRef c, UserRef u, Done done) {
+    _t->removeFromChannel(c, u, std::move(done));
+}
 void BackendProxy::setReminder(ConvRef c, Ts ts, int64_t due) {
     _t->setReminder(c, ts, due);
 }

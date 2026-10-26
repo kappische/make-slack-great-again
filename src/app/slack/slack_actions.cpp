@@ -2230,6 +2230,90 @@ model::Backend::LocalResult SlackBackend::runLocalCommand(
     return r;
 }
 
+// ── Channel details ─────────────────────────────────────────────────────────
+// Each a write that is not retried; on ok the Store takes the change
+// (rename: the name Slack settled on, which may differ from the one asked).
+
+void SlackBackend::renameChannel(ConvRef c, std::string name, Done done) {
+    api(
+        "conversations.rename",
+        net::formEncode({{"channel", convId(c)}, {"name", name}}),
+        [this, c, name](const json::Document &doc) {
+            const std::string_view got = doc.root()["channel"]["name"].str();
+            _store.updateConversation(c, [&](model::Conversation &x) {
+                x.name = got.empty() ? name : std::string(got);
+            });
+        },
+        std::move(done)
+    );
+}
+
+void SlackBackend::setChannelTopic(ConvRef c, std::string topic, Done done) {
+    api(
+        "conversations.setTopic",
+        net::formEncode({{"channel", convId(c)}, {"topic", topic}}),
+        [this, c, topic](const json::Document &) {
+            _store.updateConversation(c, [&](model::Conversation &x) { x.topic = topic; });
+        },
+        std::move(done)
+    );
+}
+
+void SlackBackend::setChannelDescription(ConvRef c, std::string text, Done done) {
+    api(
+        "conversations.setPurpose",
+        net::formEncode({{"channel", convId(c)}, {"purpose", text}}),
+        [this, c, text](const json::Document &) {
+            _store.updateConversation(c, [&](model::Conversation &x) { x.purpose = text; });
+        },
+        std::move(done)
+    );
+}
+
+void SlackBackend::archiveChannel(ConvRef c, Done done) {
+    api(
+        "conversations.archive",
+        net::formEncode({{"channel", convId(c)}}),
+        [this, c](const json::Document &) {
+            _store.updateConversation(c, [](model::Conversation &x) { x.member = false; });
+        },
+        std::move(done)
+    );
+}
+
+void SlackBackend::addToChannel(ConvRef c, model::UserRef u, Done done) {
+    if (u >= _store.userCount()) {
+        _write->answer(std::move(done), false, "user_not_found");
+        return;
+    }
+    api(
+        "conversations.invite",
+        net::formEncode({{"channel", convId(c)}, {"users", _store.user(u).id}}),
+        [this, c](const json::Document &) {
+            _store.updateConversation(c, [](model::Conversation &x) { ++x.memberCount; });
+        },
+        std::move(done)
+    );
+}
+
+void SlackBackend::removeFromChannel(ConvRef c, model::UserRef u, Done done) {
+    if (u >= _store.userCount()) {
+        _write->answer(std::move(done), false, "user_not_found");
+        return;
+    }
+    api(
+        "conversations.kick",
+        net::formEncode({{"channel", convId(c)}, {"user", _store.user(u).id}}),
+        [this, c](const json::Document &) {
+            _store.updateConversation(c, [](model::Conversation &x) {
+                if (x.memberCount > 0)
+                    --x.memberCount;
+            });
+        },
+        std::move(done)
+    );
+}
+
 // dnd.setSnooze for a number of minutes, dnd.endSnooze
 // for 0; my User shows it at once (the dnd_updated_user echo agrees).
 void SlackBackend::setDndSnooze(int minutes, Done done) {

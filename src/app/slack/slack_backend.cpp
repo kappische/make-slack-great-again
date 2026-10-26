@@ -3119,6 +3119,7 @@ model::Backend::Capabilities SlackBackend::capabilities() const {
     c.removePreview    = _creds.sessionAuth(); // chat.deleteAttachment: internal, xoxc only
     c.slashCommands    = true;                 // the built-ins, commands.list, chat.command
     c.sidebarTheme     = _creds.sessionAuth(); // users.prefs.get: xoxc only
+    c.channelEditing   = true; // conversations.rename / setTopic / … (channels:write, groups:write)
     return c;
 }
 

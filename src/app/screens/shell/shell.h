@@ -171,6 +171,8 @@ public:
     void           showProfile(model::UserRef u, ui::RectF anchor = {});
     // The rename dialog: a local name for a group DM (or agent session).
     void           renameConversation(model::ConvRef c);
+    // "Channel details" (channel_dialogs.h); failures go to the error banner.
+    void           showChannelDetails(model::ConvRef c);
     // "Find a channel" on its Channels (0) or
     // People (1) tab — a channel opens (joined first), a person's DM opens.
     void           openBrowseDialog(int tab);
