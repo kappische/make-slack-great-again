@@ -1140,46 +1140,65 @@ void SlackBackend::react(ConvRef conv, Ts ts, std::string_view name, bool add) {
 // answers a request it doesn't accept with its sign-in page (HTML, 200):
 // that is a failure, not the file.
 void SlackBackend::downloadFile(const std::string &url, std::string toPath, Done done) {
+    downloadFileTracked(url, std::move(toPath), nullptr, std::move(done));
+}
+
+std::function<void()> SlackBackend::downloadFileTracked(
+    const std::string &url, std::string toPath, Progress progress, Done done
+) {
     net::Request req;
-    req.url       = url;
-    req.timeoutMs = kUploadTimeoutMs;
+    req.url        = url;
+    req.timeoutMs  = kUploadTimeoutMs;
+    req.onProgress = std::move(progress);
     addAuthHeaders(req.headers, _auth);
     // Held here too: a workspace switch (our destructor) cancels the
     // transfer and still answers it, so the caller's background job ends.
     auto held = std::make_shared<Done>(std::move(done));
     _downloads.push_back(held);
-    transfers().send(std::move(req), [this, held, toPath = std::move(toPath)](net::Response r) {
-        std::erase(_downloads, held);
-        Done done = std::exchange(*held, nullptr);
-        if (r.error == "cancelled") {
-            if (done)
-                done(false, "cancelled");
-            return;
-        }
-        std::string err = r.error;
-        if (err.empty() && !r.ok())
-            err = str::concat({"http ", str::number(r.status)});
-        if (err.empty() && str::startsWith(r.header("Content-Type"), "text/html") &&
-            r.body.find("<html") != std::string::npos &&
-            r.url.find("files.slack.com") != std::string::npos)
-            err = "not_authed";
-        if (!err.empty()) {
-            LOG_WARN("slack", "download: %s", err.c_str());
-            if (done)
-                done(false, err);
-            return;
-        }
-        auto body = std::make_shared<std::string>(std::move(r.body));
-        auto ok   = std::make_shared<bool>(false);
-        model::runInBackground(
-            _app,
-            [body, ok, toPath] { *ok = file::writeAtomic(toPath, *body); },
-            [ok, done] {
-                if (done) // the file is written either way: no alive check
-                    done(*ok, *ok ? std::string() : std::string("write_failed"));
+    const net::RequestId id =
+        transfers().send(std::move(req), [this, held, toPath = std::move(toPath)](net::Response r) {
+            std::erase(_downloads, held);
+            Done done = std::exchange(*held, nullptr);
+            if (r.error == "cancelled") {
+                if (done)
+                    done(false, "cancelled");
+                return;
             }
-        );
-    });
+            std::string err = r.error;
+            if (err.empty() && !r.ok())
+                err = str::concat({"http ", str::number(r.status)});
+            if (err.empty() && str::startsWith(r.header("Content-Type"), "text/html") &&
+                r.body.find("<html") != std::string::npos &&
+                r.url.find("files.slack.com") != std::string::npos)
+                err = "not_authed";
+            if (!err.empty()) {
+                LOG_WARN("slack", "download: %s", err.c_str());
+                if (done)
+                    done(false, err);
+                return;
+            }
+            auto body = std::make_shared<std::string>(std::move(r.body));
+            auto ok   = std::make_shared<bool>(false);
+            model::runInBackground(
+                _app,
+                [body, ok, toPath] { *ok = file::writeAtomic(toPath, *body); },
+                [ok, done] {
+                    if (done) // the file is written either way: no alive check
+                        done(*ok, *ok ? std::string() : std::string("write_failed"));
+                }
+            );
+        });
+    // The stop works only while the transfer runs: its answer, our
+    // destructor and an earlier stop all empty `held` first.
+    std::weak_ptr<bool> alive = _alive;
+    return [this, alive, held, id] {
+        if (alive.expired() || !*held)
+            return;
+        transfers().cancel(id);
+        std::erase(_downloads, held);
+        if (Done done = std::exchange(*held, nullptr))
+            done(false, "cancelled");
+    };
 }
 
 void SlackBackend::deleteFile(ConvRef conv, Ts ts, const std::string &fileId) {

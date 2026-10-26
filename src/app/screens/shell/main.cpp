@@ -26,6 +26,7 @@
 #include "app/llm/service.h"
 #include "app/media/audio_player.h"
 #include "app/model/backend_proxy.h"
+#include "app/model/downloads.h"
 #include "app/model/null_backend.h"
 #ifdef MSGA_SELF_UPDATE
 #include "app/update/updater.h"
@@ -307,6 +308,9 @@ int main(int argc, char **argv) {
 #endif
     // Avatars, files, emoji and previews from URLs, cached on disk.
     screens::RemoteImages remote(pa, &transfers, screens::RemoteImages::defaultDir(pa));
+    // The downloads list (the sidebar footer's), as it was left.
+    if (const std::string data = identity::dataDir(pa); !data.empty())
+        model::downloads().setFile(pa, file::join(data, "downloads.json"));
     // The rest of the cache limit: the inline player's
     // audio and the opened HTML files are evicted with the pictures; the
     // workspaces' data and icons only count toward the limit.

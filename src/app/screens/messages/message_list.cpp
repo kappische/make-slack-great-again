@@ -704,36 +704,18 @@ void MessageList::toggleSaved(Ts ts) {
 }
 
 void MessageList::downloadFile(Ts ts, const std::string &path) {
-    // "Save file" at ~/<name>, then the
-    // original (source(): for audio, path is Slack's transcode) to it, the
-    // footer's cog running from the choice until the bytes are on disk.
+    // Straight into Downloads, the original (source(): for audio, path is
+    // Slack's transcode), listed in the sidebar's downloads (downloads.h).
     const model::Message *m = message(ts);
     const model::File    *f = m && !m->pending ? anyFileAt(m, path) : nullptr;
     if (!f)
         return;
-    const std::string name   = f->name.empty() ? std::string(tr("file")) : f->name;
-    const std::string source = f->source();
-    Context          &ctx    = _ctx; // outlives the list; the download may outlive it
-    screens::saveFile(
-        _ctx,
-        name,
-        [&ctx, name, source](std::string to) {
-            if (to.empty())
-                return;
-            const int job = model::jobs().begin(arg(tr("Downloading %1"), name));
-            fetchFile(
-                ctx.app.platform(),
-                ctx.backend,
-                source,
-                std::move(to),
-                [job](bool ok, const std::string &err) {
-                    if (!ok)
-                        LOG_WARN("messages", "File download failed: %s", err.c_str());
-                    model::jobs().end(job);
-                }
-            );
-        },
-        _ctx.app.platform().standardDir(plat::StandardDir::Home)
+    downloadToFolder(
+        _ctx.app.platform(),
+        _ctx.backend,
+        f->name.empty() ? std::string(tr("file")) : f->name,
+        f->source(),
+        f->size
     );
 }
 

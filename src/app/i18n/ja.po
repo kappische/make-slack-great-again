@@ -64,7 +64,7 @@ msgstr "表示"
 msgid "Hide"
 msgstr "非表示"
 
-#: src/ui/controls.cpp src/ui/filebrowser.cpp src/app/screens/messages/message_dialogs.cpp src/app/screens/settings/settings_pages.cpp src/app/screens/shell/composer.cpp src/app/screens/shell/composer_popups.cpp src/app/screens/shell/scheduled_page.cpp src/app/screens/shell/session_dialogs.cpp src/app/screens/shell/shell_dialogs.cpp src/app/screens/shell/signin_dialogs.cpp src/app/screens/shell/status_dialog.cpp
+#: src/ui/controls.cpp src/ui/filebrowser.cpp src/app/screens/messages/message_dialogs.cpp src/app/screens/settings/settings_pages.cpp src/app/screens/shell/composer.cpp src/app/screens/shell/composer_popups.cpp src/app/screens/shell/downloads_popup.cpp src/app/screens/shell/scheduled_page.cpp src/app/screens/shell/session_dialogs.cpp src/app/screens/shell/shell_dialogs.cpp src/app/screens/shell/signin_dialogs.cpp src/app/screens/shell/status_dialog.cpp
 msgid "Cancel"
 msgstr "キャンセル"
 
@@ -2743,6 +2743,46 @@ msgstr "msgaから削除"
 msgid "Log out from %1"
 msgstr "%1からログアウト"
 
+#: src/app/screens/shell/downloads_popup.cpp
+msgid "%1 of %2"
+msgstr "%1 / %2"
+
+#: src/app/screens/shell/downloads_popup.cpp
+msgid "Starting…"
+msgstr "開始しています…"
+
+#: src/app/screens/shell/downloads_popup.cpp
+msgid "Moved or deleted"
+msgstr "移動または削除されました"
+
+#: src/app/screens/shell/downloads_popup.cpp
+msgid "Failed"
+msgstr "失敗しました"
+
+#: src/app/screens/shell/downloads_popup.cpp
+msgid "Cancelled"
+msgstr "キャンセルしました"
+
+#: src/app/screens/shell/downloads_popup.cpp src/app/screens/shell/sidebar_footer.cpp
+msgid "Downloads"
+msgstr "ダウンロード"
+
+#: src/app/screens/shell/downloads_popup.cpp
+msgid "Clear"
+msgstr "クリア"
+
+#: src/app/screens/shell/downloads_popup.cpp
+msgid "Clear the list (the files stay)"
+msgstr "リストをクリア（ファイルは残ります）"
+
+#: src/app/screens/shell/downloads_popup.cpp
+msgid "Show in folder"
+msgstr "フォルダーに表示"
+
+#: src/app/screens/shell/downloads_popup.cpp
+msgid "Remove from list"
+msgstr "リストから削除"
+
 #: src/app/screens/shell/gif_search.cpp
 msgid "GIPHY rate limit reached. Try again shortly."
 msgstr "GIPHYのレート制限に達しました。しばらくしてからもう一度お試しください。"
@@ -3204,6 +3244,10 @@ msgstr "メッセージのリマインダーを設定していました。"
 #: src/app/screens/shell/shortcuts.cpp
 msgid "Jump to a conversation"
 msgstr "会話にジャンプ"
+
+#: src/app/screens/shell/shortcuts.cpp
+msgid "Show downloads"
+msgstr "ダウンロードを表示"
 
 #: src/app/screens/shell/shortcuts.cpp
 msgid "New line in message"

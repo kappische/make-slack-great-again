@@ -1,5 +1,6 @@
 #include "core/backends.h"
 #include "core/pacing.h"
+#include "core/transfer.h"
 
 #include <cstdlib>
 #include <cstring>
@@ -65,6 +66,13 @@ void App::showFileDialogEx(const FileDialogDesc &d, std::function<void(FileDialo
         r.paths = std::move(paths);
         cb(std::move(r));
     });
+}
+
+bool App::showInFolder(std::string_view path) {
+    const size_t slash = path.find_last_of("/\\");
+    if (slash == std::string_view::npos)
+        return false;
+    return openUrl(core::fileUri(path.substr(0, slash == 0 ? 1 : slash)));
 }
 
 std::vector<std::string> App::preferredLanguages() const {

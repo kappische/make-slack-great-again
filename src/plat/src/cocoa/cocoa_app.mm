@@ -550,6 +550,17 @@ bool CocoaApp::openUrl(std::string_view url) {
     }
 }
 
+bool CocoaApp::showInFolder(std::string_view path) {
+    @autoreleasepool {
+        NSString *s = nsString(path);
+        if (!s.length)
+            return false;
+        [NSWorkspace.sharedWorkspace
+            activateFileViewerSelectingURLs:@[ [NSURL fileURLWithPath:s] ]];
+        return true;
+    }
+}
+
 void CocoaApp::setBadgeCount(int count) {
     ensureLaunched(); // the Dock tile only exists once we are in the Dock
     // Plain AppKit, no permission needed (unlike UNUserNotificationCenter's

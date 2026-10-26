@@ -23,6 +23,7 @@ class Sidebar;
 class PresenceToggle;
 class GhostButton;
 class TaskSpinner;
+class DownloadsButton;
 
 class SidebarFooter : public ui::View {
 public:
@@ -51,26 +52,33 @@ public:
 
     // The background-task cog (hidden while no job runs) and its hover list
     // (null unless shown).
-    ui::View  *tasksIndicator() const;
-    bool       tasksTurning() const; // the cog is animating
-    ui::Popup *tasksPopup() const { return _tasksPopup; }
-    void       showTasksPopup();
-    void       hideTasksPopup();
+    ui::View      *tasksIndicator() const;
+    bool           tasksTurning() const; // the cog is animating
+    ui::Popup     *tasksPopup() const { return _tasksPopup; }
+    // The downloads button (hidden while the list is empty) and its popover
+    // (downloads_popup.h); showDownloads toggles it.
+    ui::Clickable *downloadsButton() const;
+    ui::Popup     *downloadsPopup() const { return _downloadsPopup; }
+    void           showDownloads();
+    void           showTasksPopup();
+    void           hideTasksPopup();
 
 private:
     void jobsChanged();
 
     screens::Context       &_ctx;
     Avatars                &_avatars;
-    ui::Clickable          *_avatarBtn    = nullptr;
-    Avatar                 *_avatar       = nullptr;
-    PresenceToggle         *_toggle       = nullptr;
-    GhostButton            *_zen          = nullptr;
-    TaskSpinner            *_tasks        = nullptr;
-    ui::Popup              *_tasksPopup   = nullptr;
-    model::Jobs::ObserverId _jobsObserver = 0;
-    bool                    _zenOn        = false;
-    plat::TimerId           _confirm      = 0; // settle back if the service never answers
+    ui::Clickable          *_avatarBtn      = nullptr;
+    Avatar                 *_avatar         = nullptr;
+    PresenceToggle         *_toggle         = nullptr;
+    GhostButton            *_zen            = nullptr;
+    TaskSpinner            *_tasks          = nullptr;
+    ui::Popup              *_tasksPopup     = nullptr;
+    DownloadsButton        *_downloads      = nullptr;
+    ui::Popup              *_downloadsPopup = nullptr;
+    model::Jobs::ObserverId _jobsObserver   = 0;
+    bool                    _zenOn          = false;
+    plat::TimerId           _confirm        = 0; // settle back if the service never answers
 };
 
 } // namespace shell

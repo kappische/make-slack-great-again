@@ -12,8 +12,10 @@
 
 #include "app/model/backend.h"
 
+#include <cstdint>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace plat {
 class App;
@@ -27,6 +29,20 @@ void fetchFile(
     const std::string   &source,
     std::string          toPath,
     model::Backend::Done done
+);
+
+// The file bar's Download, the way Slack does it: no dialog, `source` into
+// the Downloads folder (home without one) under `name` — a free name,
+// "report (1).pdf", when it is taken — listed in model::downloads() with its
+// progress until it is in (`size`: what the service says, 0 = unknown).
+void downloadToFolder(
+    plat::App &app, model::Backend &backend, std::string name, std::string source, int64_t size
+);
+// A free path for `name` in `dir`: dir/name, else "stem (1).ext", "stem
+// (2).ext", … — one that isn't on disk and that `taken` doesn't claim. Reads
+// the disk: a worker's.
+std::string freeDownloadPath(
+    std::string_view dir, std::string_view name, const std::vector<std::string> &taken
 );
 
 // A fresh path for a downloaded copy of `name` under the OS temp directory

@@ -443,6 +443,18 @@ bool Win32App::openUrl(std::string_view url) {
     return r > 32;
 }
 
+bool Win32App::showInFolder(std::string_view path) {
+    // Explorer's own switch: a window on the folder with the file selected.
+    // It takes the path quoted, with backslashes.
+    std::wstring p = toWide(path);
+    std::replace(p.begin(), p.end(), L'/', L'\\');
+    const std::wstring args = L"/select,\"" + p + L"\"";
+    const auto         r    = reinterpret_cast<INT_PTR>(
+        ShellExecuteW(nullptr, L"open", L"explorer.exe", args.c_str(), nullptr, SW_SHOWNORMAL)
+    );
+    return r > 32;
+}
+
 #ifdef PLAT_TEST_HOOKS
 // ── test hooks: real input through SendInput ────────────────────────────────
 

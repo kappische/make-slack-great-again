@@ -2,7 +2,9 @@
 
 #include "base/i18n.h"
 #include "gfx/icons_generated.h"
+#include "screens/shell/downloads_popup.h"
 #include "screens/shell/nav_chrome.h"
+#include "screens/shell/shortcuts.h"
 #include "screens/shell/shell_text.h"
 #include "screens/shell/sidebar.h"
 
@@ -240,9 +242,14 @@ SidebarFooter::SidebarFooter(Sidebar &, screens::Context &ctx, Avatars &avatars)
     _avatar->setHitTransparent(true);
     _avatarBtn->onClick = [this] { showAvatarMenu(); };
     add<View>()->style().flex(1);
+    // Left of the cog and the toggle, kTaskGap apart.
+    _downloads = add<DownloadsButton>();
+    _downloads->style().margins(0, 0, kTaskGap, 0);
+    _downloads->setTooltip(shortcuts::tip(tr("Downloads"), shortcuts::Id::ShowDownloads));
+    _downloads->onClick = [this] { showDownloads(); };
     // Left of the toggle (kTaskGap apart; refresh()), at the right edge
     // without one.
-    _tasks = add<TaskSpinner>();
+    _tasks              = add<TaskSpinner>();
     _tasks->setVisible(false);
     _tasks->onHover = [this](bool on) {
         if (on)
@@ -294,6 +301,24 @@ void SidebarFooter::showTasksPopup() {
     _tasksPopup->setAnchor(_tasks->windowRect(), Popup::Place::Tip);
 }
 
+Clickable *SidebarFooter::downloadsButton() const {
+    return _downloads;
+}
+
+void SidebarFooter::showDownloads() {
+    if (Popup *p = std::exchange(_downloadsPopup, nullptr)) { // a second press closes it
+        p->onClosed = nullptr;
+        p->close();
+        return;
+    }
+    Window *w = window();
+    if (!w || !_downloads->visible())
+        return;
+    _downloadsPopup = shell::showDownloads(*w, _ctx, _downloads->windowRect());
+    if (_downloadsPopup)
+        _downloadsPopup->onClosed = [this] { _downloadsPopup = nullptr; };
+}
+
 void SidebarFooter::hideTasksPopup() {
     if (Popup *p = std::exchange(_tasksPopup, nullptr)) {
         p->onClosed = nullptr;
@@ -324,6 +349,10 @@ Clickable *SidebarFooter::zenToggle() const {
 SidebarFooter::~SidebarFooter() {
     model::jobs().unobserve(_jobsObserver);
     hideTasksPopup();
+    if (Popup *p = std::exchange(_downloadsPopup, nullptr)) {
+        p->onClosed = nullptr;
+        p->close();
+    }
     if (_confirm)
         _ctx.app.platform().cancelTimer(_confirm);
 }

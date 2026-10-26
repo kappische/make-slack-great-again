@@ -58,6 +58,9 @@ public:
     virtual std::optional<bool> networkOnline() const { return std::nullopt; }
     // Portal org.gnome.desktop.interface / org.freedesktop.appearance values.
     virtual SystemSettings      systemSettings() const { return {}; }
+    // org.freedesktop.FileManager1.ShowItems; false when there is no bus to
+    // ask (the caller opens the folder instead).
+    virtual bool                showInFolder(std::string_view path) { return false; }
 #ifdef PLAT_TEST_HOOKS
     // Emits NetworkChanged / Suspending / Resumed
     // on the app itself (NetworkManager, logind on the system bus, …).
@@ -112,6 +115,9 @@ public:
     }
     std::optional<bool> networkOnline() const override { return services().networkOnline(); }
     SystemSettings      systemSettings() const override { return services().systemSettings(); }
+    bool                showInFolder(std::string_view path) override {
+        return services().showInFolder(path) || App::showInFolder(path);
+    }
 #ifdef PLAT_TEST_HOOKS
     bool fileDialogRespond(std::vector<std::string> p) override {
         return services().fileDialogRespond(std::move(p));

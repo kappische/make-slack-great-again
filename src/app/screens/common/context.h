@@ -49,6 +49,8 @@ struct Context {
     std::function<void()>                          closeThread;
     std::function<void(UserRef)>                   openProfile; // may be a no-op for now
     std::function<void(const std::string &)>       openUrl;     // links in messages
+    // A local file selected in the OS's file manager (the downloads list).
+    std::function<void(const std::string &path)>   showInFolder;
     // A message link's chip: the conversation (or
     // the thread, for a reply) with the message scrolled to and flashed.
     std::function<void(ConvRef, Ts ts, Ts thread)> openMessage;

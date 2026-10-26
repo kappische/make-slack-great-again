@@ -813,6 +813,11 @@ public:
     virtual bool darkMode() const              = 0;
     virtual int  doubleClickMs() const         = 0;
     virtual bool openUrl(std::string_view url) = 0;
+    // The file manager with `path` (an absolute file) selected in its folder:
+    // Finder, Explorer, org.freedesktop.FileManager1 (Nautilus, Dolphin, …);
+    // else (and by default) the folder opened through openUrl. False when
+    // nothing could be started.
+    virtual bool showInFolder(std::string_view path);
 
     // Native input injection for tests (plat/testing.h); null when the
     // backend has no way to synthesise input through the OS, and always null

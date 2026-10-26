@@ -4,6 +4,7 @@
 #include "app/fake/fake_backend.h"
 #include "app/i18n/languages.h"
 #include "base/i18n.h"
+#include "app/model/downloads.h"
 #include "app/model/jobs.h"
 #include "app/mrkdwn/emoji.h"
 #include "app/spell/spell.h"
@@ -475,6 +476,74 @@ TEST("sidebar footer: the background-task cog turns while jobs run and lists the
     CHECK_FALSE(f.tasksTurning());
     hooks->injectPointerMove(h.win->native(), {600, 300});
     pump();
+}
+
+namespace {
+ui::View *viewNamed(ui::View *v, std::string_view needle) {
+    if (v->accessibleName().find(needle) != std::string::npos ||
+        v->tooltip().find(needle) != std::string::npos)
+        return v;
+    for (size_t i = 0; i < v->childCount(); ++i)
+        if (ui::View *f = viewNamed(v->child(i), needle))
+            return f;
+    return nullptr;
+}
+} // namespace
+
+TEST("sidebar footer: the downloads button lists the downloads; cancel, show in folder, clear") {
+    model::downloads().reset();
+    Harness               h;
+    shell::SidebarFooter &f = h.sidebar().footer();
+    pump();
+    CHECK_FALSE(f.downloadsButton()->visible()); // nothing downloaded yet
+    const std::string dir  = app().platform().standardDir(plat::StandardDir::Downloads);
+    const std::string done = file::join(dir, "report.pdf");
+    REQUIRE(file::makeDirs(dir));
+    REQUIRE(file::writeAtomic(done, "%PDF"));
+    const int a = model::downloads().begin("report.pdf", done, 4);
+    model::downloads().finish(a, true);
+    const int b = model::downloads().begin("big.iso", file::join(dir, "big.iso"), 1000);
+    model::downloads().progress(b, 250, 1000);
+    bool stopped = false;
+    model::downloads().setStop(b, [&] {
+        stopped = true;
+        model::downloads().finish(b, false, "cancelled");
+    });
+    pump();
+    REQUIRE(f.downloadsButton()->visible());
+    CHECK(f.downloadsButton()->tooltip().find("Downloads") == 0);
+    f.showDownloads();
+    pump(2);
+    ui::Popup *p = f.downloadsPopup();
+    REQUIRE(p != nullptr);
+    CHECK(p->windowRect().y + p->height() <= f.downloadsButton()->windowRect().y); // above it
+    CHECK(viewNamed(p, "big.iso") != nullptr);
+    CHECK(viewNamed(p, " of ") != nullptr); // "250 B of 1000 B"
+    // Cancel: the download's stop; the row says so.
+    auto *cancel = static_cast<ui::Clickable *>(viewNamed(p, "Cancel"));
+    REQUIRE(cancel != nullptr);
+    cancel->activate();
+    pump(2);
+    CHECK(stopped);
+    CHECK(viewNamed(p, "Cancelled") != nullptr);
+    // Show in folder: the OS's file manager, here the headless default (the folder).
+    auto *show = static_cast<ui::Clickable *>(viewNamed(p, "Show in folder"));
+    REQUIRE(show != nullptr);
+    show->activate();
+    std::string opened;
+    REQUIRE(app().platform().testHooks()->lastOpenedUrl(&opened));
+    CHECK(str::startsWith(opened, "file://"));
+    CHECK(str::endsWith(opened, std::string(file::baseName(dir))));
+    // Clear: everything finished goes, and with it the popover and the button.
+    auto *clear = static_cast<ui::Clickable *>(viewNamed(p, "Clear the list"));
+    REQUIRE(clear != nullptr);
+    clear->activate();
+    pump(4);
+    CHECK(f.downloadsPopup() == nullptr);
+    CHECK_FALSE(f.downloadsButton()->visible());
+    CHECK(file::exists(done)); // the files stay
+    file::remove(done);
+    model::downloads().reset();
 }
 
 TEST("status dialog: a suggestion fills it; Save sets the status, Clear status clears it") {

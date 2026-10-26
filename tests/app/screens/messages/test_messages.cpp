@@ -7,6 +7,7 @@
 #include "app/llm/service.h"
 #include "app/media/audio_player.h"
 #include "support/fake_llm_server.h"
+#include "app/model/downloads.h"
 #include "app/model/jobs.h"
 #include "app/screens/common/avatar_initial.h"
 #include "app/screens/common/icon_button.h"
@@ -2093,8 +2094,14 @@ TEST("image: \"Copy full image\" of a Slack-hosted image copies the original, no
     wipe(dir);
 }
 
-TEST("actions: the file bar's Download saves the original where asked, a job until written") {
-    const std::string dir = tempDir("download");
+TEST("actions: the file bar's Download saves the original into Downloads, listed until in") {
+    model::downloads().reset();
+    const std::string dir = app().platform().standardDir(plat::StandardDir::Downloads);
+    REQUIRE(!dir.empty());
+    const std::string first = file::join(dir, "signups-week-37.csv");
+    const std::string again = file::join(dir, "signups-week-37 (1).csv");
+    file::remove(first);
+    file::remove(again);
     {
         Env           e(true);
         const ConvRef general = e.conv("C0GENERAL");
@@ -2110,31 +2117,33 @@ TEST("actions: the file bar's Download saves the original where asked, a job unt
         REQUIRE(ts != 0);
         e.list->showConversation(general);
         pump(10);
-        auto             *hooks = app().platform().testHooks();
-        const std::string to    = file::join(dir, "saved.csv");
-        REQUIRE(hooks->fileDialogRespond({to}));
+        auto *hooks = app().platform().testHooks();
         e.list->downloadFile(ts, path);
-        REQUIRE(until([&] { return model::jobs().count() == 1; }));
-        CHECK_STR(model::jobs().descriptions()[0], "Downloading signups-week-37.csv");
+        REQUIRE(until([&] { return model::downloads().items().size() == 1; }));
         plat::FileDialogDesc d;
-        REQUIRE(hooks->lastFileDialog(&d));
-        CHECK_STR(d.suggestedName, "signups-week-37.csv");
-        CHECK_STR(d.initialDir, app().platform().standardDir(plat::StandardDir::Home));
-        REQUIRE(until([&] { return model::jobs().count() == 0; }));
+        CHECK_FALSE(hooks->lastFileDialog(&d) && d.suggestedName == "signups-week-37.csv");
+        const model::Downloads::Item &it = model::downloads().items()[0];
+        CHECK_STR(it.name, "signups-week-37.csv");
+        CHECK_STR(it.path, first);
+        REQUIRE(until([&] { return model::downloads().running() == 0; }));
+        CHECK(model::downloads().items()[0].state == model::Downloads::State::Done);
         REQUIRE(e.backend.asked.size() == 1);
         CHECK_STR(e.backend.asked[0].url, "https://files.csv.test/files/signups-week-37.csv");
         std::string want, got;
         REQUIRE(file::readAll(asset("files/signups-week-37.csv"), &want));
-        REQUIRE(file::readAll(to, &got));
+        REQUIRE(file::readAll(first, &got));
         CHECK(got == want);
-        // Cancelled: no job, no download.
-        REQUIRE(hooks->fileDialogRespond({}));
+        // Again: the name is taken, so the copy gets the next free one.
         e.list->downloadFile(ts, path);
-        pump(6);
-        CHECK(model::jobs().count() == 0);
-        CHECK(e.backend.asked.size() == 1);
+        REQUIRE(until([&] {
+            return model::downloads().items().size() == 2 && model::downloads().running() == 0;
+        }));
+        CHECK_STR(model::downloads().items()[0].path, again); // newest first
+        CHECK(file::exists(again));
     }
-    wipe(dir);
+    file::remove(first);
+    file::remove(again);
+    model::downloads().reset();
 }
 
 TEST("image: failed downloads are not kept, cool down, and end with a sign-in") {
