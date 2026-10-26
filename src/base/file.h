@@ -62,6 +62,36 @@ int64_t treeBytes(std::string_view path);
 bool    copy(std::string_view from, std::string_view to);
 // Sets the modification time to now (LRU disk caches stamp "last used").
 bool    touch(std::string_view path);
+// Renames `from` over `to`, replacing what is there (same file system): a
+// file written under a temporary name put in place.
+bool    replace(std::string_view from, std::string_view to);
+
+// A file written piece by piece, as a download arrives: open() creates or
+// truncates it (and its parent directories), close() flushes it. Not
+// atomic: write it under a temporary name, then replace() it into place.
+// One thread at a time.
+class Writer {
+public:
+    Writer() = default;
+    ~Writer(); // closes (not flushed to disk)
+    Writer(const Writer &)            = delete;
+    Writer &operator=(const Writer &) = delete;
+
+    bool open(std::string_view path);
+    bool write(std::string_view data);
+    // Flushed to disk and closed. False when it was never open or any
+    // write failed.
+    bool close();
+    bool isOpen() const;
+
+private:
+#ifdef _WIN32
+    void *_h = nullptr; // HANDLE
+#else
+    int _fd = -1;
+#endif
+    bool _ok = false;
+};
 
 // What the file system says about a path (links followed).
 struct Stat {

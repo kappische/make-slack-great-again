@@ -552,4 +552,103 @@ std::string fromFileUrl(std::string_view url) {
     return out;
 }
 
+#ifdef _WIN32
+bool replace(std::string_view from, std::string_view to) {
+    return MoveFileExW(
+        widePath(from).c_str(),
+        widePath(to).c_str(),
+        MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH
+    );
+}
+
+Writer::~Writer() {
+    if (_h)
+        CloseHandle(_h);
+}
+
+bool Writer::open(std::string_view path) {
+    if (_h)
+        CloseHandle(_h);
+    makeDirs(dirName(path));
+    HANDLE h = CreateFileW(
+        widePath(path).c_str(),
+        GENERIC_WRITE,
+        0,
+        nullptr,
+        CREATE_ALWAYS,
+        FILE_ATTRIBUTE_NORMAL,
+        nullptr
+    );
+    _h  = h == INVALID_HANDLE_VALUE ? nullptr : h;
+    _ok = _h != nullptr;
+    return _ok;
+}
+
+bool Writer::write(std::string_view data) {
+    while (_ok && !data.empty()) {
+        DWORD      put = 0;
+        const auto n   = DWORD(std::min<size_t>(data.size(), size_t(1) << 30));
+        _ok            = WriteFile(_h, data.data(), n, &put, nullptr) && put > 0;
+        data.remove_prefix(put);
+    }
+    return _ok;
+}
+
+bool Writer::close() {
+    if (!_h)
+        return false;
+    const bool ok = _ok && FlushFileBuffers(_h);
+    CloseHandle(_h);
+    _h = nullptr;
+    return ok;
+}
+
+bool Writer::isOpen() const {
+    return _h != nullptr;
+}
+#else
+bool replace(std::string_view from, std::string_view to) {
+    return ::rename(std::string(from).c_str(), std::string(to).c_str()) == 0;
+}
+
+Writer::~Writer() {
+    if (_fd >= 0)
+        ::close(_fd);
+}
+
+bool Writer::open(std::string_view path) {
+    if (_fd >= 0)
+        ::close(_fd);
+    makeDirs(dirName(path));
+    _fd = ::open(std::string(path).c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644);
+    _ok = _fd >= 0;
+    return _ok;
+}
+
+bool Writer::write(std::string_view data) {
+    while (_ok && !data.empty()) {
+        const ssize_t w = ::write(_fd, data.data(), data.size());
+        if (w < 0 && errno == EINTR)
+            continue;
+        _ok = w > 0;
+        if (_ok)
+            data.remove_prefix(size_t(w));
+    }
+    return _ok;
+}
+
+bool Writer::close() {
+    if (_fd < 0)
+        return false;
+    const bool ok     = _ok && ::fsync(_fd) == 0;
+    const bool closed = ::close(_fd) == 0;
+    _fd               = -1;
+    return ok && closed;
+}
+
+bool Writer::isOpen() const {
+    return _fd >= 0;
+}
+#endif
+
 } // namespace file

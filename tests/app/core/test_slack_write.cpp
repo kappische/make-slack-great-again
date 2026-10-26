@@ -1075,7 +1075,7 @@ TEST("slack write: downloadFile fetches with the workspace's credentials, writes
         e.be.reset();
         REQUIRE(pumpUntil([&] { return gone.called; }));
         CHECK_FALSE(gone.ok);
-        CHECK_STR(gone.err, "cancelled");
+        CHECK_STR(gone.err, "interrupted"); // not a cancel of the user's
     }
     file::remove(to);
     file::remove(file::join(dir, "late.bin"));

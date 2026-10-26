@@ -1,6 +1,7 @@
 // model::Downloads (the sidebar footer's downloads list): states, progress,
 // stops, the cap, and the list kept on disk across restarts.
 #include "app/model/downloads.h"
+#include "app/screens/common/downloads.h"
 #include "base/file.h"
 #include "support/test.h"
 
@@ -62,12 +63,16 @@ TEST("downloads: cancel uses the stop; remove and clear keep running ones") {
     CHECK(d.find(a)->state == S::Cancelled);
     d.cancel(a); // finished: nothing
     CHECK(stops == 1);
-    // No stop (a local copy): it is let run and marked cancelled.
+    // No stop (a local copy): it runs on, keeping its path, and stays
+    // listed until it is in.
     const int b = d.begin("b.bin", "/dl/b.bin", 0);
     d.cancel(b);
-    CHECK(d.find(b)->state == S::Cancelled);
-    d.finish(b, true); // its late answer changes nothing
-    CHECK(d.find(b)->state == S::Cancelled);
+    CHECK(d.find(b)->state == S::Running);
+    CHECK(d.reserved("/dl/b.bin"));
+    d.remove(b);
+    REQUIRE(d.find(b) != nullptr);
+    d.finish(b, true);
+    CHECK(d.find(b)->state == S::Done);
     // Remove: off the list; a running one is stopped first.
     const int c       = d.begin("c.bin", "/dl/c.bin", 0);
     bool      stopped = false;
@@ -109,6 +114,7 @@ TEST("downloads: whenDone tells each waiter once; latest finds a source's newest
     CHECK(d.latest("https://f/v.mp4")->id == b);
     S got = S::Running;
     d.whenDone(b, [&](const Downloads::Item &it) { got = it.state; });
+    d.setStop(b, [&] { d.finish(b, false, "cancelled"); });
     d.cancel(b);
     CHECK(got == S::Cancelled);
 }
@@ -172,3 +178,29 @@ TEST("downloads: saved after each change; read back with interrupted ones failed
     file::remove(path);
 }
 #endif
+
+TEST("downloads: file names any OS takes, and a free one next to what is there") {
+    using screens::freeDownloadPath;
+    using screens::safeFileName;
+    CHECK_STR(safeFileName("../etc/passwd"), "passwd");
+    CHECK_STR(safeFileName("a:b*c?.txt"), "a_b_c_.txt");
+    CHECK_STR(safeFileName("notes. "), "notes");
+    CHECK_STR(safeFileName("con"), "_con");
+    CHECK_STR(safeFileName("NUL.txt"), "_NUL.txt");
+    CHECK_STR(safeFileName("com7.log"), "_com7.log");
+    CHECK_STR(safeFileName("console.log"), "console.log");
+    CHECK_STR(safeFileName(".."), "file");
+    CHECK_STR(safeFileName(""), "file");
+    const std::string dir = base::test::makeTempDir("msga_dl_");
+    REQUIRE(!dir.empty());
+    CHECK_STR(freeDownloadPath(dir, "a.tar.gz", {}), file::join(dir, "a.tar.gz"));
+    REQUIRE(file::writeAtomic(file::join(dir, "a.tar.gz"), "x"));
+    CHECK_STR(freeDownloadPath(dir, "a.tar.gz", {}), file::join(dir, "a.tar (1).gz"));
+    // A running download's path is taken too.
+    CHECK_STR(
+        freeDownloadPath(dir, "a.tar.gz", {file::join(dir, "a.tar (1).gz")}),
+        file::join(dir, "a.tar (2).gz")
+    );
+    CHECK_STR(freeDownloadPath(dir, "README", {}), file::join(dir, "README"));
+    file::removeTree(dir);
+}

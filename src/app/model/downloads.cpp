@@ -121,13 +121,15 @@ void Downloads::cancel(int id) {
     Item *it = at(id);
     if (!it || it->state != State::Running)
         return;
+    // One that can't be stopped (a local copy, a backend without a stop)
+    // runs on: calling it cancelled would free its path while it writes.
     if (std::function<void()> stop = std::exchange(it->stop, nullptr))
         stop(); // answers finish(id, false, "cancelled"), or will
-    else
-        finish(id, false, "cancelled"); // can't be stopped: let it run, forget it
 }
 
 void Downloads::remove(int id) {
+    if (const Item *it = find(id); it && it->state == State::Running && !it->stop)
+        return; // can't be stopped: it stays listed until it is in
     cancel(id);
     for (size_t i = 0; i < _items.size(); ++i)
         if (_items[i].id == id) {

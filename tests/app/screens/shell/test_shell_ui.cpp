@@ -546,6 +546,48 @@ TEST("sidebar footer: the downloads button lists the downloads; cancel, show in 
     model::downloads().reset();
 }
 
+TEST("sidebar footer: a click on a download's Cancel lands while its progress comes in") {
+    model::downloads().reset();
+    Harness               h;
+    shell::SidebarFooter &f       = h.sidebar().footer();
+    const int             a       = model::downloads().begin("big.iso", "/nowhere/big.iso", 1000);
+    bool                  stopped = false;
+    model::downloads().setStop(a, [&] {
+        stopped = true;
+        model::downloads().finish(a, false, "cancelled");
+    });
+    // One that can't be stopped (a local copy) offers no Cancel.
+    const int b = model::downloads().begin("copy.bin", "/nowhere/copy.bin", 10);
+    pump();
+    f.showDownloads();
+    pump(2);
+    ui::Popup *p = f.downloadsPopup();
+    REQUIRE(p != nullptr);
+    auto *cancel = viewNamed(p, "Cancel");
+    REQUIRE(cancel != nullptr);
+    CHECK(viewNamed(viewNamed(p, "copy.bin")->parent()->parent(), "Cancel") == nullptr);
+    const ui::RectF r     = cancel->windowRect();
+    auto           *hooks = app().platform().testHooks();
+    hooks->injectPointerMove(h.win->native(), {r.x + r.w / 2, r.y + r.h / 2});
+    pump();
+    hooks->injectButton(h.win->native(), plat::Button::Left, true);
+    pump();
+    for (int i = 1; i <= 5; ++i) { // progress between press and release
+        model::downloads().progress(a, i * 100, 1000);
+        pump(2);
+    }
+    CHECK(viewNamed(p, "500 B of 1000 B") != nullptr); // shown, in place
+    CHECK(viewNamed(p, "Cancel") == cancel);           // the same button
+    hooks->injectButton(h.win->native(), plat::Button::Left, false);
+    pump(2);
+    CHECK(stopped);
+    model::downloads().finish(b, true);
+    pump(2);
+    hooks->injectPointerMove(h.win->native(), {600, 300});
+    pump();
+    model::downloads().reset();
+}
+
 TEST("status dialog: a suggestion fills it; Save sets the status, Clear status clears it") {
     Harness h;
     auto   *d = shell::StatusDialog::show(*h.win, h.ctx);

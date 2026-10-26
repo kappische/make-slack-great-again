@@ -2872,17 +2872,6 @@ const std::string *MessageList::canvasPreview(const std::string &id, int *state)
     return nullptr;
 }
 
-namespace {
-// A file name that is safe in any OS's directory.
-std::string safeFileName(std::string_view name) {
-    std::string out(file::baseName(name));
-    for (char &c : out)
-        if (std::strchr("\\/:*?\"<>|", c))
-            c = '_';
-    return out;
-}
-} // namespace
-
 void MessageList::openHtmlFile(const model::File &f) {
     // The page itself in the browser, not Slack's file
     // page (which only offers a download).

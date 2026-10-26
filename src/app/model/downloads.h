@@ -57,9 +57,11 @@ public:
     // `fn` once a running one finishes (after the observers; several chain).
     // A finished or unknown id: never.
     void whenDone(int id, std::function<void(const Item &)> fn);
-    // The stop of a running one (which answers finish(…, "cancelled")).
+    // The stop of a running one (which answers finish(…, "cancelled")); one
+    // without a stop runs on.
     void cancel(int id);
-    // Off the list (the file stays where it is); a running one is stopped.
+    // Off the list (the file stays where it is); a running one is stopped
+    // first, one that can't be stopped stays.
     void remove(int id);
     // Every finished one off the list; running ones stay.
     void clearFinished();

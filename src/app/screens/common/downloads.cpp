@@ -40,6 +40,24 @@ void fetchFile(
     );
 }
 
+std::string safeFileName(std::string_view name) {
+    std::string out(file::baseName(name));
+    for (char &c : out)
+        if (std::strchr("\\/:*?\"<>|", c) || uint8_t(c) < 0x20)
+            c = '_';
+    // Windows drops trailing dots and spaces, and won't make a file named
+    // after a device ("con", "nul.txt", "COM1").
+    while (!out.empty() && (out.back() == '.' || out.back() == ' '))
+        out.pop_back();
+    const std::string stem = str::asciiLower(out.substr(0, out.find('.')));
+    const bool numbered    = stem.size() == 4 &&
+                             (stem.compare(0, 3, "com") == 0 || stem.compare(0, 3, "lpt") == 0) &&
+                             stem[3] >= '1' && stem[3] <= '9';
+    if (numbered || stem == "con" || stem == "prn" || stem == "aux" || stem == "nul")
+        out.insert(0, 1, '_');
+    return out.empty() ? std::string("file") : out;
+}
+
 std::string freeDownloadPath(
     std::string_view dir, std::string_view name, const std::vector<std::string> &taken
 ) {
@@ -67,18 +85,17 @@ void downloadToFolder(
     int64_t                  size,
     std::function<void(int)> started
 ) {
-    std::string dir = app.standardDir(plat::StandardDir::Downloads);
+    const std::string base = safeFileName(name);
+    std::string       dir  = app.standardDir(plat::StandardDir::Downloads);
     if (dir.empty())
         dir = app.standardDir(plat::StandardDir::Home);
-    if (dir.empty() || source.empty())
+    if (dir.empty() || source.empty()) { // listed as failed: whoever waits hears of it
+        const int id = model::downloads().begin(base, {}, size, source);
+        if (started)
+            started(id);
+        model::downloads().finish(id, false, "no_folder");
         return;
-    // Only the last path component, safe in any OS's folder.
-    std::string base(file::baseName(name));
-    for (char &c : base)
-        if (std::strchr("\\/:*?\"<>|", c) || uint8_t(c) < 0x20)
-            c = '_';
-    if (base.empty() || base == "." || base == "..")
-        base = "file";
+    }
     // What running downloads are writing, as of now: the worker skips those.
     std::vector<std::string> taken;
     for (const model::Downloads::Item &it : model::downloads().items())

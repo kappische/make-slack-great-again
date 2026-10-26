@@ -61,6 +61,10 @@ void openFromDownloads(
     int64_t                                      size,
     std::function<void(model::Downloads::State)> done
 );
+// `name` as a file name any OS takes: its last path component, the
+// characters Windows refuses replaced, no trailing dots or spaces, a device
+// name ("con", "nul.txt") prefixed; "file" for nothing left.
+std::string safeFileName(std::string_view name);
 // A free path for `name` in `dir`: dir/name, else "stem (1).ext", "stem
 // (2).ext", … — one that isn't on disk and that `taken` doesn't claim. Reads
 // the disk: a worker's.

@@ -189,10 +189,17 @@ public:
         MsgWriter w(m.get());
         w.strings({fileUri(path)});
         w.str(""); // no startup notification id
-        _bus.call(m, [this, p = std::string(path)](DBusMessage *reply, const char *, const char *) {
-            if (!reply)
-                _host.App::showInFolder(p);
-        });
+        // A file manager that hangs while starting gets 3 s, then the folder
+        // opens instead (not long after the click was forgotten).
+        std::weak_ptr<int> weak = _alive;
+        _bus.call(
+            m,
+            [this, weak, p = std::string(path)](DBusMessage *reply, const char *, const char *) {
+                if (!weak.expired() && !reply)
+                    _host.App::showInFolder(p);
+            },
+            3000
+        );
         return true;
     }
 

@@ -55,6 +55,12 @@ std::string statusText(const Downloads::Item &it) {
 class ProgressBar final : public View {
 public:
     explicit ProgressBar(float fraction) : _f(fraction) { style().height(3).margins(0, 4, 0, 0); }
+    void setFraction(float f) {
+        if (f != _f) {
+            _f = f;
+            update();
+        }
+    }
     void paint(gfx::Painter &p) override {
         const RectF b = bounds();
         p.fillRoundRect(b, 1.5f, color(C::FormDivider));
@@ -91,19 +97,58 @@ public:
     ~DownloadsPopup() override { model::downloads().unobserve(_observer); }
 
 private:
-    // Rebuilt on a later turn: a change can come from a click on one of
-    // the rows' own buttons, which must outlive its handler.
+    // Progress (a few times a second) updates the rows in place; a download
+    // that came, went or changed state rebuilds them — on a later turn (a
+    // change can come from a click on a row's own button, which must
+    // outlive its handler), and not while a button is held down (the
+    // rebuild would take the click with it).
     void schedule() {
         if (_pending)
             return;
-        _pending                  = true;
+        _pending = true;
+        later(0);
+    }
+    void later(int ms) {
         std::weak_ptr<char> alive = _alive;
-        _ctx.app.platform().post([this, alive] {
+        _ctx.app.platform().addTimer(ms, false, [this, alive] {
             if (alive.expired())
                 return;
+            if (sameRows()) {
+                _pending = false;
+                updateRows();
+                return;
+            }
+            if (const Window *w = window(); w && w->capture() && isAncestorOf(w->capture())) {
+                updateRows();
+                later(100);
+                return;
+            }
             _pending = false;
             build();
         });
+    }
+    // The rows show the same downloads in the same states.
+    bool sameRows() const {
+        const std::vector<Downloads::Item> &items = model::downloads().items();
+        if (items.size() != _shown.size())
+            return false;
+        for (size_t i = 0; i < items.size(); ++i)
+            if (items[i].id != _shown[i].id || items[i].state != _shown[i].state ||
+                items[i].missing != _shown[i].missing)
+                return false;
+        return true;
+    }
+    // The status lines and bars of the rows that are still those downloads.
+    void updateRows() {
+        for (Shown &s : _shown)
+            if (const Downloads::Item *it = model::downloads().find(s.id); it) {
+                s.status->setText(statusText(*it));
+                if (s.bar)
+                    s.bar->setFraction(fraction(*it));
+            }
+    }
+    static float fraction(const Downloads::Item &it) {
+        return it.total > 0 ? std::min(1.f, float(it.received) / float(it.total)) : 0.f;
     }
     void build() {
         const std::vector<Downloads::Item> &items = model::downloads().items();
@@ -113,6 +158,7 @@ private:
         }
         View *c = _scroll->content();
         c->clearChildren();
+        _shown.clear();
         bool finished = false;
         for (const Downloads::Item &it : items) {
             addRow(c, it);
@@ -136,11 +182,12 @@ private:
         col->style().flex(1).spacing(2);
         col->add<Label>(it.name, Font::BodySemibold, done ? C::FormText : C::FormTextMuted)
             ->setMaxLines(1);
-        col->add<Label>(statusText(it), Font::Small, C::FormTextMuted)->setMaxLines(1);
+        Shown shown{it.id, it.state, it.missing, nullptr, nullptr};
+        shown.status = col->add<Label>(statusText(it), Font::Small, C::FormTextMuted);
+        shown.status->setMaxLines(1);
         if (it.state == S::Running)
-            col->add<ProgressBar>(
-                it.total > 0 ? std::min(1.f, float(it.received) / float(it.total)) : 0.f
-            );
+            shown.bar = col->add<ProgressBar>(fraction(it));
+        _shown.push_back(shown);
         const int id     = it.id;
         auto      button = [&](Icon icon, const char *tip) {
             auto *b = row->add<GlyphButton>(icon, 28, 16, C::FormIcon, tr(tip));
@@ -158,15 +205,26 @@ private:
                     _ctx.showInFolder(path);
             };
         }
-        if (it.state == S::Running)
-            button(Icon::X, N_("Cancel"))->onClick = [id] { model::downloads().cancel(id); };
-        else
+        if (it.state == S::Running) {
+            if (it.stop) // a local copy can't be stopped
+                button(Icon::X, N_("Cancel"))->onClick = [id] { model::downloads().cancel(id); };
+        } else
             button(Icon::X, N_("Remove from list"))->onClick = [id] {
                 model::downloads().remove(id);
             };
     }
 
+    // What a row was built for, and its parts that progress updates.
+    struct Shown {
+        int              id;
+        Downloads::State state;
+        bool             missing;
+        Label           *status;
+        ProgressBar     *bar; // running only
+    };
+
     screens::Context            &_ctx;
+    std::vector<Shown>           _shown;
     Clickable                   *_clear    = nullptr;
     ScrollView                  *_scroll   = nullptr;
     model::Downloads::ObserverId _observer = 0;
