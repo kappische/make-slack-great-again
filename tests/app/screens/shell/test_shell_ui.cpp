@@ -1269,7 +1269,71 @@ TEST("composer: @ puts the people talking here first, and lists user groups") {
     p->confirm();
     pump();
     CHECK_STR(c.edit().text(), "@design-team ");
-    CHECK_STR(c.mrkdwn(), "<!subteam^S0DESIGN> ");
+    CHECK_STR(c.mrkdwn(), "<!subteam^S0DESIGN|@design-team> ");
+    // Editing it again (Up, a send given back): a pill again, not the token.
+    shell::loadMrkdwn(c.edit(), h.store, "<!subteam^S0DESIGN> hi");
+    CHECK_STR(c.edit().text(), "@design-team hi");
+    CHECK_STR(c.mrkdwn(), "<!subteam^S0DESIGN> hi");
+    shell::loadMrkdwn(c.edit(), h.store, "<!subteam^S0OTHER|@elsewhere> hi");
+    CHECK_STR(c.edit().text(), "@elsewhere hi"); // not ours: its label
+    CHECK_STR(c.mrkdwn(), "<!subteam^S0OTHER|@elsewhere> hi");
+}
+
+TEST("composer: @ ranks a thread's replies, then its starter, then the channel") {
+    Harness       h;
+    const ConvRef design = h.conv("C0DESIGN");
+    model::Ts     root   = 0;
+    for (const model::Message &m : h.store.conversation(design).messages)
+        if (m.text.rfind("Proposal B", 0) == 0)
+            root = m.ts;
+    REQUIRE(root != 0);
+    const model::Message *starter = h.store.findMessage(design, root);
+    REQUIRE(starter != nullptr);
+    const auto *replies = h.store.replies(design, root);
+    REQUIRE(replies != nullptr);
+    const auto ranked = shell::recentAuthors(h.store, design, root);
+    // Each reply's author (not me) comes before the starter, who comes
+    // before anyone who only posted in the channel.
+    const auto pos    = [&](model::UserRef u) {
+        return size_t(std::find(ranked.begin(), ranked.end(), u) - ranked.begin());
+    };
+    REQUIRE(pos(starter->user) < ranked.size());
+    for (const model::Message &r : *replies)
+        if (r.user != h.store.me && r.user != starter->user)
+            CHECK(pos(r.user) < pos(starter->user));
+    for (const model::UserRef u : ranked) {
+        bool inThread = u == starter->user;
+        for (const model::Message &r : *replies)
+            inThread = inThread || r.user == u;
+        if (!inThread)
+            CHECK(pos(u) > pos(starter->user));
+        CHECK(u != h.store.me);
+    }
+    // A system line ("joined") doesn't count as talking; nor do the gone.
+    model::User newbie, gone;
+    newbie.id              = "U0NEWBIE";
+    newbie.name            = "newbie";
+    gone.id                = "U0GONE";
+    gone.name              = "gone";
+    gone.deleted           = true;
+    const model::UserRef n = h.store.addUser(newbie), g = h.store.addUser(gone);
+    model::Message       join, said;
+    join.ts               = model::parseTs("1900000000.000100");
+    join.user             = n;
+    join.extras().subtype = "channel_join";
+    said.ts               = model::parseTs("1900000000.000200");
+    said.user             = g;
+    said.text             = "bye";
+    std::vector<model::Message> page;
+    page.push_back(std::move(join));
+    page.push_back(std::move(said));
+    h.store.addPage(design, std::move(page));
+    const auto flat = shell::recentAuthors(h.store, design, 0);
+    REQUIRE(!flat.empty());
+    CHECK(std::find(flat.begin(), flat.end(), n) == flat.end());
+    CHECK(std::find(flat.begin(), flat.end(), g) == flat.end());
+    CHECK(flat.size() <= 30);
+    CHECK(shell::recentAuthors(h.store, model::kNoConv, 0).empty());
 }
 
 TEST("composer: # lists channels, : completes emoji") {
