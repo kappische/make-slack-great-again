@@ -309,14 +309,15 @@ private:
         int         state = 0; // 0 loading, 1 loaded, -1 failed
     };
 
-    Context                   &_ctx;
-    std::unique_ptr<Adapter>   _adapter;
-    ui::VirtualList           *_list    = nullptr;
-    ui::Label                 *_typing  = nullptr;
-    ListState                 *_state   = nullptr;
-    float                      _typingH = 22; // 0: no typing row (setTypingRow)
-    ui::View                  *_toolbar = nullptr;
-    ui::Clickable             *_tbEmoji = nullptr, *_tbForward = nullptr, *_tbMore = nullptr;
+    Context                 &_ctx;
+    std::unique_ptr<Adapter> _adapter;
+    ui::VirtualList         *_list    = nullptr;
+    ui::Label               *_typing  = nullptr;
+    ListState               *_state   = nullptr;
+    float                    _typingH = 22; // 0: no typing row (setTypingRow)
+    ui::View                *_toolbar = nullptr;
+    ui::Clickable           *_tbEmoji = nullptr, *_tbReply = nullptr, *_tbForward = nullptr,
+                  *_tbMore             = nullptr;
     class ActionButton        *_tbSave = nullptr, *_tbAgent = nullptr;
     ui::View                  *_fileBar = nullptr, *_fileView = nullptr; // the hovered file
     Ts                         _fileTs = 0;
