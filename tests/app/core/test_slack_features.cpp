@@ -647,6 +647,33 @@ TEST("slack features: paused notifications — dnd.info at connect, snooze, resu
     REQUIRE(pumpUntil([&] { return done; }));
     CHECK(count("dnd.endDnd") == 1);
     CHECK(count("dnd.endSnooze") == 1);
+    // A snooze inside the stretch: one Resume ends both, and stays resumed.
+    set(str::concat(
+        {R"({"dnd.info": {"ok": true, "dnd_enabled": true, "snooze_enabled": true, )",
+         R"("snooze_endtime": )",
+         str::number(now + 600),
+         R"(, "next_dnd_start_ts": )",
+         str::number(now - 60),
+         R"(, "next_dnd_end_ts": )",
+         str::number(end + 60),
+         "}}"}
+    ));
+    e.be->loadDnd();
+    REQUIRE(pumpUntil([&] { return e.be->notificationsPausedUntil() == end + 60; }));
+    set(str::concat(
+        {R"({"dnd.info": {"ok": true, "dnd_enabled": true, "snooze_enabled": false, )",
+         R"("next_dnd_start_ts": )",
+         str::number(end + 3600),
+         R"(, "next_dnd_end_ts": )",
+         str::number(end + 7200),
+         "}}"}
+    ));
+    done = false;
+    e.be->pauseNotifications(0, [&](bool ok, const std::string &) { done = ok; });
+    REQUIRE(pumpUntil([&] { return done; }));
+    CHECK(count("dnd.endSnooze") == 2);
+    CHECK(count("dnd.endDnd") == 2);
+    REQUIRE(pumpUntil([&] { return e.be->notificationsPausedUntil() == 0; }));
 }
 
 #endif // !_WIN32

@@ -2251,33 +2251,73 @@ void SlackBackend::setDndSnooze(int minutes, Done done) {
     );
 }
 
-// Resuming ends a snooze, or — inside the account's notification schedule —
-// that stretch of it (dnd.endDnd), as Slack's "Resume notifications" does.
+// Resuming ends a snooze, and — inside the account's notification
+// schedule — that stretch of it (dnd.endDnd), as Slack's "Resume
+// notifications" does; a snooze inside the stretch needs both.
 void SlackBackend::pauseNotifications(int minutes, Done done) {
-    if (minutes > 0 || _dndSnoozed || _pausedUntil == 0) {
+    if (minutes > 0 || !_dndInSchedule) {
         setDndSnooze(minutes, std::move(done));
         return;
     }
+    auto endDnd = [this](Done done) {
+        api(
+            "dnd.endDnd",
+            std::string(),
+            [this](const json::Document &) {
+                if (_store.me != model::kNoUser) {
+                    _store.user(_store.me).dnd = false;
+                    _pausedUntil               = 0;
+                    _dndSnoozed = _dndInSchedule = false;
+                    _store.usersChanged(_store.me);
+                }
+                loadDnd();
+            },
+            std::move(done)
+        );
+    };
+    if (!_dndSnoozed) {
+        endDnd(std::move(done));
+        return;
+    }
     api(
-        "dnd.endDnd",
+        "dnd.endSnooze",
         std::string(),
-        [this](const json::Document &) {
-            if (_store.me != model::kNoUser) {
-                _store.user(_store.me).dnd = false;
-                _pausedUntil               = 0;
-                _store.usersChanged(_store.me);
-            }
-            loadDnd();
-        },
-        std::move(done)
+        [](const json::Document &) {},
+        [endDnd, done = std::move(done)](bool ok, const std::string &err) mutable {
+            if (ok || err == "snooze_not_active")
+                endDnd(std::move(done));
+            else if (done)
+                done(false, err);
+        }
     );
 }
 
+// The newest ask wins: an older answer (retried, rate-limited) would undo a
+// change made since. A failed ask tries again (a minute, doubling to an
+// hour: a missing scope fails for good), since only an answer arms the next
+// turn's timer.
 void SlackBackend::loadDnd() {
-    readCall("dnd.info", std::string(), [this](const json::Document &doc, const std::string &err) {
-        if (err.empty())
-            applyDnd(doc.root());
-    });
+    const uint32_t gen = ++_dndGen;
+    readCall(
+        "dnd.info", std::string(), [this, gen](const json::Document &doc, const std::string &err) {
+            if (gen != _dndGen || err == "cancelled")
+                return;
+            if (err.empty()) {
+                _dndRetrySecs = 0;
+                applyDnd(doc.root());
+                return;
+            }
+            _dndRetrySecs = std::min(_dndRetrySecs ? _dndRetrySecs * 2 : 60, 3600);
+            if (_dndTimer)
+                _app.cancelTimer(_dndTimer);
+            _dndTimer = _app.addTimer(_dndRetrySecs * 1000, false, [this, alive = _alive] {
+                if (!*alive)
+                    return;
+                _dndTimer = 0;
+                loadDnd();
+            });
+        }
+    );
 }
 
 // dnd.info's answer and dnd_updated's dnd_status read alike: a snooze
@@ -2292,6 +2332,7 @@ void SlackBackend::applyDnd(const json::Value &st) {
     const bool    snoozed = snooze > now;
     const int64_t until   = std::max(snoozed ? snooze : 0, inSched ? end : 0);
     _dndSnoozed           = snoozed;
+    _dndInSchedule        = inSched;
     if (_store.me != model::kNoUser) {
         model::User &me = _store.user(_store.me);
         if (me.dnd != (until > 0) || _pausedUntil != until) {

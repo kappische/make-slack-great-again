@@ -308,8 +308,12 @@ void Shell::huddleChanged(model::Store &st, const std::string &key, ConvRef conv
     if (_notifiedHuddles.count(tag))
         return;
     model::Backend &be = backendFor(st);
+    if (be.notificationsPausedUntil() > be.nowSecs()) {
+        _notifiedHuddles.insert(tag); // seen: not announced hours late on resume
+        return;
+    }
     if (!_settings.notifications || !_settings.notifyHuddles || st.workspaceMuted ||
-        !be.capabilities().huddles || be.notificationsPausedUntil() > be.nowSecs())
+        !be.capabilities().huddles)
         return;
     const model::NotifyLevel level = effectiveLevel(c);
     if (!c.member || c.muted || level == model::NotifyLevel::Nothing)

@@ -273,6 +273,7 @@ void SlackBackend::Live::apply(const json::Value &ev, bool ours) {
         return;
     }
     if (type == "dnd_updated") { // mine (others' come as dnd_updated_user)
+        ++b._dndGen;             // newer than any dnd.info in flight
         b.applyDnd(ev["dnd_status"]);
         return;
     }
@@ -284,7 +285,9 @@ void SlackBackend::Live::apply(const json::Value &ev, bool ours) {
         UserRef last    = kNoUser;
         auto    patch   = [&](std::string_view id) {
             const UserRef u = s.findUser(id);
-            if (u == kNoUser)
+            // My own DND is dnd_updated's (applyDnd: the snooze too, which
+            // dnd_enabled — the schedule's switch — doesn't tell).
+            if (u == kNoUser || (!presence && u == s.me))
                 return;
             bool &field = presence ? s.user(u).active : s.user(u).dnd;
             if (field != on) {
@@ -552,6 +555,7 @@ void SlackBackend::Live::onReconnected() {
         b.reloadConversations();
     b.backfillOpen();
     resyncUnreads();
+    b.loadDnd(); // a pause set or ended elsewhere meanwhile
 }
 
 void SlackBackend::Live::onContended() {
