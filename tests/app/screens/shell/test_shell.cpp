@@ -1589,7 +1589,7 @@ TEST("thread splitter: a fast drag keeps up with the pointer") {
     const float     w0 = panel->width();
     auto           *th = app().platform().testHooks();
     // The 1-px handle is just left of the panel.
-    const float x = r.x - 1, y = r.y + 100;
+    const float     x = r.x - 1, y = r.y + 100;
     REQUIRE(th->injectPointerMove(h.win->native(), {x + 0.5f, y}));
     app().pump(0);
     th->injectButton(h.win->native(), plat::Button::Left, true);
