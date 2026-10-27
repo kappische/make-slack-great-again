@@ -88,6 +88,18 @@ public:
         if (done)
             done(false, "not supported");
     }
+    // downloadFile as the downloads list follows it: `progress` (bytes so
+    // far, the whole size or 0 when unknown; on the UI thread, never after
+    // done) and the returned stop, which ends it with done(false,
+    // "cancelled") at once — null when it can't be stopped. Default:
+    // downloadFile, neither.
+    using Progress = std::function<void(int64_t received, int64_t total)>;
+    virtual std::function<void()>
+    downloadFileTracked(const std::string &url, std::string toPath, Progress progress, Done done) {
+        (void)progress;
+        downloadFile(url, std::move(toPath), std::move(done));
+        return nullptr;
+    }
     // "Remind me": a saved item with a due time (epoch secs); 0 removes it.
     virtual void setReminder(ConvRef conv, Ts ts, int64_t dueSecs);
 

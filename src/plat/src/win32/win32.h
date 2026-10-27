@@ -459,6 +459,7 @@ public:
     bool darkMode() const override;
     int  doubleClickMs() const override { return int(GetDoubleClickTime()); }
     bool openUrl(std::string_view url) override;
+    bool showInFolder(std::string_view path) override;
 #ifdef PLAT_TEST_HOOKS
     TestHooks *testHooks() override { return this; }
 #endif

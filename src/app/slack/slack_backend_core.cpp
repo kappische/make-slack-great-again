@@ -26,7 +26,7 @@ SlackBackend::~SlackBackend() {
     _transfers.reset(); // no transfer callback runs past here
     for (auto &d : _downloads)
         if (Done fn = std::exchange(*d, nullptr))
-            _app.post([fn] { fn(false, "cancelled"); });
+            _app.post([fn] { fn(false, "interrupted"); }); // not the user's cancel
     for (net::RequestId id : _inflight)
         _client.cancel(id);
     _inflight.clear();

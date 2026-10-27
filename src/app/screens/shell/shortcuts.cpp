@@ -17,6 +17,8 @@ const Def kDefs[] = {
     {Id::QuickSwitch, Scope::Window, true, N_("Jump to a conversation"), {{K::K, Ctrl}, kNone}},
     // Find: Ctrl+F on every platform.
     {Id::SearchMessages, Scope::Window, true, N_("Search messages"), {{K::F, Ctrl}, kNone}},
+    // Slack's (Ctrl+Shift+J, Cmd+Shift+J on macOS).
+    {Id::ShowDownloads, Scope::Window, true, N_("Show downloads"), {{K::J, Ctrl | Shift}, kNone}},
     // The keys of the next two are replaced by bindings() (the Ctrl+Enter option).
     {Id::SendMessage, Scope::Documented, true, N_("Send message"), {{K::Enter, 0}, kNone}},
     {Id::NewLine, Scope::Documented, true, N_("New line in message"), {{K::Enter, Shift}, kNone}},

@@ -130,6 +130,7 @@ TEST("shortcuts: one row per action, the help panel's rows in order") {
         "Open settings",
         "Jump to a conversation",
         "Search messages",
+        "Show downloads",
         "Send message",
         "New line in message",
         "Edit last message",

@@ -24,6 +24,7 @@
 #include "plat/plat.h"
 
 #include <algorithm>
+#include <mutex>
 #include <utility>
 
 namespace slack {
@@ -1135,23 +1136,93 @@ void SlackBackend::react(ConvRef conv, Ts ts, std::string_view name, bool add) {
     _write->react(conv, ts, std::string(name), add);
 }
 
-// The bytes with the workspace's token (and,
-// for session auth, its d cookie), then written to disk on a worker. Slack
-// answers a request it doesn't accept with its sign-in page (HTML, 200):
-// that is a failure, not the file.
+namespace {
+
+// A download's bytes into <toPath>.part on the net worker as they arrive
+// (never the whole file in memory: a video can be gigabytes), moved over
+// toPath on a worker once all is in. Slack answers a request it doesn't
+// accept with its sign-in page (HTML, 200): the first bytes are kept to tell.
+class PartSink final : public net::Handler {
+public:
+    explicit PartSink(std::string to) : target(std::move(to)), part(target + ".part") {
+        streamBody = true;
+    }
+    ~PartSink() override { discard(); }
+
+    bool body(const char *data, size_t n) override {
+        std::lock_guard lock(_m);
+        if (_done)
+            return false;
+        if (head.size() < kHead)
+            head.append(data, std::min(n, kHead - head.size()));
+        if (!_out.isOpen() && !_out.open(part))
+            return false;
+        return _out.write({data, n});
+    }
+    // A worker's, after the answer: flushed and put in place; false when
+    // anything failed (what was written is removed).
+    bool install() {
+        std::lock_guard lock(_m);
+        _done         = true;
+        const bool ok = _out.isOpen() ? _out.close() : _out.open(part) && _out.close();
+        if (ok && file::replace(part, target))
+            return true;
+        file::remove(part);
+        return false;
+    }
+    // Stopped, failed or never installed: closed and removed.
+    void discard() {
+        std::lock_guard lock(_m);
+        if (_done)
+            return;
+        _done = true;
+        if (_out.isOpen()) {
+            _out.close();
+            file::remove(part);
+        }
+    }
+
+    static constexpr size_t kHead = 512;
+    const std::string       target, part;
+    std::string             head; // the first bytes (the sign-in page check)
+
+private:
+    std::mutex   _m; // the net worker writes, a background worker installs
+    file::Writer _out;
+    bool         _done = false;
+};
+
+// Downloads can take long (a video over a slow link): net's timeout is
+// for the whole answer, not for silence.
+constexpr int kDownloadTimeoutMs = 3 * 3600 * 1000;
+
+} // namespace
+
+// The bytes with the workspace's token (and, for session auth, its d
+// cookie), streamed to disk (PartSink).
 void SlackBackend::downloadFile(const std::string &url, std::string toPath, Done done) {
+    downloadFileTracked(url, std::move(toPath), nullptr, std::move(done));
+}
+
+std::function<void()> SlackBackend::downloadFileTracked(
+    const std::string &url, std::string toPath, Progress progress, Done done
+) {
+    auto         sink = std::make_shared<PartSink>(std::move(toPath));
     net::Request req;
-    req.url       = url;
-    req.timeoutMs = kUploadTimeoutMs;
+    req.url        = url;
+    req.timeoutMs  = kDownloadTimeoutMs;
+    req.onProgress = std::move(progress);
+    req.handler    = sink;
     addAuthHeaders(req.headers, _auth);
     // Held here too: a workspace switch (our destructor) cancels the
     // transfer and still answers it, so the caller's background job ends.
     auto held = std::make_shared<Done>(std::move(done));
     _downloads.push_back(held);
-    transfers().send(std::move(req), [this, held, toPath = std::move(toPath)](net::Response r) {
+    const net::RequestId id = transfers().send(std::move(req), [this, held, sink](net::Response r) {
         std::erase(_downloads, held);
         Done done = std::exchange(*held, nullptr);
         if (r.error == "cancelled") {
+            sink->discard();
             if (done)
                 done(false, "cancelled");
             return;
@@ -1160,26 +1231,37 @@ void SlackBackend::downloadFile(const std::string &url, std::string toPath, Done
         if (err.empty() && !r.ok())
             err = str::concat({"http ", str::number(r.status)});
         if (err.empty() && str::startsWith(r.header("Content-Type"), "text/html") &&
-            r.body.find("<html") != std::string::npos &&
+            sink->head.find("<html") != std::string::npos &&
             r.url.find("files.slack.com") != std::string::npos)
             err = "not_authed";
         if (!err.empty()) {
             LOG_WARN("slack", "download: %s", err.c_str());
+            model::runInBackground(_app, [sink] { sink->discard(); }, nullptr);
             if (done)
                 done(false, err);
             return;
         }
-        auto body = std::make_shared<std::string>(std::move(r.body));
-        auto ok   = std::make_shared<bool>(false);
+        auto ok = std::make_shared<bool>(false);
         model::runInBackground(
             _app,
-            [body, ok, toPath] { *ok = file::writeAtomic(toPath, *body); },
+            [sink, ok] { *ok = sink->install(); },
             [ok, done] {
-                if (done) // the file is written either way: no alive check
+                if (done) // the file is in place either way: no alive check
                     done(*ok, *ok ? std::string() : std::string("write_failed"));
             }
         );
     });
+    // The stop works only while the transfer runs: its answer, our
+    // destructor and an earlier stop all empty `held` first.
+    return [this, alive = _alive, held, sink, id] {
+        if (!*alive || !*held)
+            return;
+        transfers().cancel(id);
+        std::erase(_downloads, held);
+        model::runInBackground(_app, [sink] { sink->discard(); }, nullptr);
+        if (Done done = std::exchange(*held, nullptr))
+            done(false, "cancelled");
+    };
 }
 
 void SlackBackend::deleteFile(ConvRef conv, Ts ts, const std::string &fileId) {

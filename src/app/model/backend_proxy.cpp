@@ -73,6 +73,11 @@ void BackendProxy::deleteAttachment(ConvRef c, Ts ts, int attachmentId, Done d) 
 void BackendProxy::downloadFile(const std::string &url, std::string toPath, Done done) {
     _t->downloadFile(url, std::move(toPath), std::move(done));
 }
+std::function<void()> BackendProxy::downloadFileTracked(
+    const std::string &url, std::string toPath, Progress progress, Done done
+) {
+    return _t->downloadFileTracked(url, std::move(toPath), std::move(progress), std::move(done));
+}
 void BackendProxy::setReminder(ConvRef c, Ts ts, int64_t due) {
     _t->setReminder(c, ts, due);
 }

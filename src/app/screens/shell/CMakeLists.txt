@@ -32,6 +32,7 @@ add_library(msga_screens_shell STATIC
     shell_text.cpp
     sidebar.cpp
     sidebar_footer.cpp
+    downloads_popup.cpp
     teammate_page.cpp
     overview_page.cpp
     saved_page.cpp

@@ -39,10 +39,13 @@ public:
     void deleteFile(ConvRef c, Ts ts, const std::string &fileId) override;
     void deleteAttachment(ConvRef c, Ts ts, int attachmentId, Done d) override;
     void downloadFile(const std::string &url, std::string toPath, Done done) override;
-    void setReminder(ConvRef c, Ts ts, int64_t due) override;
-    bool isAgentSession(ConvRef c) const override;
-    bool canStopSession(ConvRef c) const override;
-    void stopSession(ConvRef c) override;
+    std::function<void()> downloadFileTracked(
+        const std::string &url, std::string toPath, Progress progress, Done done
+    ) override;
+    void                   setReminder(ConvRef c, Ts ts, int64_t due) override;
+    bool                   isAgentSession(ConvRef c) const override;
+    bool                   canStopSession(ConvRef c) const override;
+    void                   stopSession(ConvRef c) override;
     std::vector<AgentRole> agentRoles() const override;
     std::string            saveAgentRole(const AgentRole &role, std::string *error) override;
     void                   removeAgentRole(const std::string &id) override;

@@ -277,6 +277,7 @@ public:
     bool darkMode() const override;
     int  doubleClickMs() const override;
     bool openUrl(std::string_view url) override;
+    bool showInFolder(std::string_view path) override;
 
     // Round 3 (cocoa_services.mm).
     std::vector<Monitor> monitors() const override;

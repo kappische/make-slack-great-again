@@ -769,8 +769,9 @@ Shell::Shell(screens::Context &ctx, Window &win, Settings &settings, std::string
     ctx.closeThread      = [this] { closeThread(); };
     ctx.openProfile      = [this](model::UserRef u) { showProfile(u); };
     ctx.openUrl          = [this](const std::string &url) { _ctx.app.platform().openUrl(url); };
+    ctx.showInFolder = [this](const std::string &path) { _ctx.app.platform().showInFolder(path); };
     // A channel we never joined is joined first.
-    ctx.openMessage      = [this](ConvRef c, Ts ts, Ts thread) {
+    ctx.openMessage  = [this](ConvRef c, Ts ts, Ts thread) {
         const model::Conversation *cv =
             c < _ctx.store().conversationCount() ? &_ctx.store().conversation(c) : nullptr;
         if (!cv || cv->member || cv->isDirect()) {
@@ -952,6 +953,7 @@ Shell::Shell(screens::Context &ctx, Window &win, Settings &settings, std::string
     shortcuts::install(win, Id::CloseFrontmost, [this] { closeFrontmost(); });
     shortcuts::install(win, Id::SearchMessages, [this] { openSearch(); });
     shortcuts::install(win, Id::QuickSwitch, [this] { showQuickSwitcher(); });
+    shortcuts::install(win, Id::ShowDownloads, [this] { _sidebar->footer().showDownloads(); });
     win.keyFilter = [this](const Event &e) {
         noteActivity();
         return removeIdleSession(e);

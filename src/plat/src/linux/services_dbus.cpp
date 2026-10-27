@@ -175,6 +175,34 @@ public:
 
     std::optional<bool> networkOnline() const override { return _system.online(); }
 
+    // The file manager that owns the name (Nautilus, Dolphin, Nemo, Thunar,
+    // …; D-Bus activation starts it). Without one the folder opens instead.
+    bool showInFolder(std::string_view path) override {
+        if (!_bus.connected())
+            return false;
+        auto m = methodCall(
+            "org.freedesktop.FileManager1",
+            "/org/freedesktop/FileManager1",
+            "org.freedesktop.FileManager1",
+            "ShowItems"
+        );
+        MsgWriter w(m.get());
+        w.strings({fileUri(path)});
+        w.str(""); // no startup notification id
+        // A file manager that hangs while starting gets 3 s, then the folder
+        // opens instead (not long after the click was forgotten).
+        std::weak_ptr<int> weak = _alive;
+        _bus.call(
+            m,
+            [this, weak, p = std::string(path)](DBusMessage *reply, const char *, const char *) {
+                if (!weak.expired() && !reply)
+                    _host.App::showInFolder(p);
+            },
+            3000
+        );
+        return true;
+    }
+
     SystemSettings systemSettings() const override {
         SystemSettings s;
         if (_textScale)

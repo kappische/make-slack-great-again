@@ -32,6 +32,7 @@ enum class Id : uint8_t {
     SearchMessages,
     QuickSwitch,
     OpenSettings,
+    ShowDownloads,
     // ── Composer scope ──────────────────────────────────────────────────────
     Bold,
     Italic,

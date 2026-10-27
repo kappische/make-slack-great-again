@@ -7,6 +7,7 @@
 #include "app/llm/service.h"
 #include "app/media/audio_player.h"
 #include "support/fake_llm_server.h"
+#include "app/model/downloads.h"
 #include "app/model/jobs.h"
 #include "app/screens/common/avatar_initial.h"
 #include "app/screens/common/icon_button.h"
@@ -2093,8 +2094,14 @@ TEST("image: \"Copy full image\" of a Slack-hosted image copies the original, no
     wipe(dir);
 }
 
-TEST("actions: the file bar's Download saves the original where asked, a job until written") {
-    const std::string dir = tempDir("download");
+TEST("actions: the file bar's Download saves the original into Downloads, listed until in") {
+    model::downloads().reset();
+    const std::string dir = app().platform().standardDir(plat::StandardDir::Downloads);
+    REQUIRE(!dir.empty());
+    const std::string first = file::join(dir, "signups-week-37.csv");
+    const std::string again = file::join(dir, "signups-week-37 (1).csv");
+    file::remove(first);
+    file::remove(again);
     {
         Env           e(true);
         const ConvRef general = e.conv("C0GENERAL");
@@ -2110,31 +2117,33 @@ TEST("actions: the file bar's Download saves the original where asked, a job unt
         REQUIRE(ts != 0);
         e.list->showConversation(general);
         pump(10);
-        auto             *hooks = app().platform().testHooks();
-        const std::string to    = file::join(dir, "saved.csv");
-        REQUIRE(hooks->fileDialogRespond({to}));
+        auto *hooks = app().platform().testHooks();
         e.list->downloadFile(ts, path);
-        REQUIRE(until([&] { return model::jobs().count() == 1; }));
-        CHECK_STR(model::jobs().descriptions()[0], "Downloading signups-week-37.csv");
+        REQUIRE(until([&] { return model::downloads().items().size() == 1; }));
         plat::FileDialogDesc d;
-        REQUIRE(hooks->lastFileDialog(&d));
-        CHECK_STR(d.suggestedName, "signups-week-37.csv");
-        CHECK_STR(d.initialDir, app().platform().standardDir(plat::StandardDir::Home));
-        REQUIRE(until([&] { return model::jobs().count() == 0; }));
+        CHECK_FALSE(hooks->lastFileDialog(&d) && d.suggestedName == "signups-week-37.csv");
+        const model::Downloads::Item &it = model::downloads().items()[0];
+        CHECK_STR(it.name, "signups-week-37.csv");
+        CHECK_STR(it.path, first);
+        REQUIRE(until([&] { return model::downloads().running() == 0; }));
+        CHECK(model::downloads().items()[0].state == model::Downloads::State::Done);
         REQUIRE(e.backend.asked.size() == 1);
         CHECK_STR(e.backend.asked[0].url, "https://files.csv.test/files/signups-week-37.csv");
         std::string want, got;
         REQUIRE(file::readAll(asset("files/signups-week-37.csv"), &want));
-        REQUIRE(file::readAll(to, &got));
+        REQUIRE(file::readAll(first, &got));
         CHECK(got == want);
-        // Cancelled: no job, no download.
-        REQUIRE(hooks->fileDialogRespond({}));
+        // Again: the name is taken, so the copy gets the next free one.
         e.list->downloadFile(ts, path);
-        pump(6);
-        CHECK(model::jobs().count() == 0);
-        CHECK(e.backend.asked.size() == 1);
+        REQUIRE(until([&] {
+            return model::downloads().items().size() == 2 && model::downloads().running() == 0;
+        }));
+        CHECK_STR(model::downloads().items()[0].path, again); // newest first
+        CHECK(file::exists(again));
     }
-    wipe(dir);
+    file::remove(first);
+    file::remove(again);
+    model::downloads().reset();
 }
 
 TEST("image: failed downloads are not kept, cool down, and end with a sign-in") {
@@ -3976,4 +3985,159 @@ TEST(
     e.ctx.window = nullptr; // the orphan path
     link->activate();       // openTranscript -> TranscriptDialog::open -> setText -> setBody
     e.ctx.window = e.win.get();
+}
+
+TEST("viewer: Left / Right step through the list's pictures in place, stopping at the ends") {
+    Env           e(false);
+    const int64_t t0  = base::nowSecs() - 3600;
+    auto          pic = [](const char *id, const char *name, const char *file) {
+        model::File f;
+        f.id     = id;
+        f.name   = name;
+        f.mime   = "image/png";
+        f.path   = asset(file);
+        f.width  = 256;
+        f.height = 160;
+        return f;
+    };
+    std::vector<model::Message> ms;
+    model::Message              a = msg(0, t0, "two pictures");
+    a.extras().files.push_back(pic("F1", "one.png", "images/blog-hero.png"));
+    a.extras().files.push_back(pic("F2", "two.png", "images/palette-v3.png"));
+    ms.push_back(std::move(a));
+    ms.push_back(msg(0, t0 + 60, "no pictures here"));
+    model::Message b = msg(0, t0 + 120, "a PDF and a zip");
+    model::File    zip;
+    zip.id   = "FZIP";
+    zip.name = "bundle.zip";
+    zip.mime = "application/zip";
+    zip.path = "/nowhere/bundle.zip";
+    b.extras().files.push_back(zip); // not a picture: skipped
+    model::File pdf = pic("FPDF", "three.pdf", "images/atlas-dashboard.png");
+    pdf.mime        = "application/pdf";
+    pdf.thumb       = pdf.path;
+    pdf.path        = "/nowhere/three.pdf";
+    b.extras().files.push_back(pdf);
+    ms.push_back(std::move(b));
+    e.list->showConversation(addConv(e.store, std::move(ms)));
+    pump(8);
+    const Ts first = t0 * 1000000, last = (t0 + 120) * 1000000;
+
+    e.list->openFileViewer(first, asset("images/palette-v3.png"));
+    pump(2);
+    ui::Popup *viewer = e.win->topPopup();
+    REQUIRE(viewer != nullptr);
+    ui::View *prev = findByTooltip(viewer, "Previous");
+    ui::View *next = findByTooltip(viewer, "Next");
+    REQUIRE(prev != nullptr);
+    REQUIRE(next != nullptr);
+    CHECK(findNamed(viewer, "two.png") != nullptr);
+    CHECK(prev->visible());
+    CHECK(next->visible());
+
+    // Right: over the message without pictures and the zip, onto the PDF.
+    ui::Event right = key(plat::Key::Right, 0);
+    viewer->onEvent(right);
+    pump(2);
+    CHECK(e.win->topPopup() == viewer); // the same viewer, rebound
+    CHECK(findNamed(viewer, "three.pdf") != nullptr);
+    CHECK(findNamed(viewer, "two.png") == nullptr);
+    CHECK_FALSE(next->visible());
+    viewer->onEvent(right); // the end: nothing happens
+    CHECK(findNamed(viewer, "three.pdf") != nullptr);
+
+    Ts                 t = 0;
+    const model::File *n = nullptr;
+    CHECK(e.list->viewerNeighbour(last, "/nowhere/three.pdf", -1, &t, &n));
+    CHECK(t == first);
+    CHECK_STR(n->name, "two.png");
+
+    // Left twice: back to the first picture, whose Previous is hidden.
+    ui::Event left = key(plat::Key::Left, 0);
+    viewer->onEvent(left);
+    viewer->onEvent(left);
+    pump(2);
+    CHECK(findNamed(viewer, "one.png") != nullptr);
+    CHECK_FALSE(prev->visible());
+    CHECK(next->visible());
+    // A chord is not a step: it is left to the shortcuts.
+    ui::Event altRight = key(plat::Key::Right, plat::ModAlt);
+    viewer->onEvent(altRight);
+    CHECK(findNamed(viewer, "one.png") != nullptr);
+    // Num Lock doesn't stop it.
+    ui::Event numRight = key(plat::Key::Right, plat::ModNum);
+    viewer->onEvent(numRight);
+    CHECK(findNamed(viewer, "two.png") != nullptr);
+    viewer->close();
+    pump(2);
+}
+
+TEST("viewer: Play saves a video into Downloads, says so, and opens it there in the OS player") {
+    model::downloads().reset();
+    Env                      e(false);
+    std::vector<std::string> opened;
+    e.ctx.openUrl    = [&](const std::string &u) { opened.push_back(u); };
+    const int64_t t0 = base::nowSecs() - 3600;
+    model::File   v;
+    v.id         = "FVID";
+    v.name       = "clip"; // no extension: the MIME type gives it one
+    v.mime       = "video/mp4";
+    v.path       = "https://files.video.test/clip.mp4";
+    v.original   = "https://files.video.test/images/blog-hero.png"; // DownloadingBackend: an asset
+    v.thumb      = asset("images/blog-hero.png");
+    v.width      = 320;
+    v.height     = 180;
+    v.durationMs = 65000;
+    model::Message m = msg(0, t0, "a clip");
+    m.extras().files.push_back(v);
+    std::vector<model::Message> ms;
+    ms.push_back(std::move(m));
+    e.list->showConversation(addConv(e.store, std::move(ms)));
+    pump(8);
+    const Ts ts = t0 * 1000000;
+    REQUIRE(e.row(ts) != nullptr);
+    pump(20); // the poster decoded, for the dump
+    dump(e, "video-row");
+    const std::string saved =
+        file::join(app().platform().standardDir(plat::StandardDir::Downloads), "clip.mp4");
+    file::remove(saved);
+
+    e.list->openFileViewer(ts, v.path);
+    pump(2);
+    ui::Popup *viewer = e.win->topPopup();
+    REQUIRE(viewer != nullptr);
+    ui::View *play = findByTooltip(viewer, "Play");
+    REQUIRE(play != nullptr);
+    CHECK(play->visible());
+    ui::Event enter = key(plat::Key::Enter, 0);
+    viewer->onEvent(enter);
+    CHECK(findNamed(viewer, "Starting") != nullptr); // at once, before any byte
+    REQUIRE(until([&] { return !opened.empty(); }));
+    pump(20); // the poster decoded, for the dump
+    dump(e, "video-viewer");
+    // Into Downloads, listed, and opened from there.
+    REQUIRE(e.backend.asked.size() == 1);
+    CHECK_STR(e.backend.asked[0].url, v.original); // the upload, not the poster
+    CHECK_STR(e.backend.asked[0].to, saved);
+    REQUIRE(model::downloads().items().size() == 1);
+    CHECK_STR(model::downloads().items()[0].source, v.original);
+    CHECK(model::downloads().items()[0].state == model::Downloads::State::Done);
+    CHECK_STR(opened[0], file::toFileUrl(saved));
+    CHECK(file::size(saved) > 0);
+    CHECK(findNamed(viewer, "Opened in your video player") != nullptr);
+    // Again: that copy, no second download.
+    viewer->onEvent(enter);
+    REQUIRE(until([&] { return opened.size() == 2; }));
+    CHECK(e.backend.asked.size() == 1);
+    CHECK_STR(opened[1], opened[0]);
+    // Gone from Downloads: downloaded again.
+    file::remove(saved);
+    viewer->onEvent(enter);
+    REQUIRE(until([&] { return opened.size() == 3; }));
+    CHECK(e.backend.asked.size() == 2);
+    CHECK(file::size(saved) > 0);
+    viewer->close();
+    pump(2);
+    file::remove(saved);
+    model::downloads().reset();
 }
