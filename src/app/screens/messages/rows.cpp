@@ -1764,8 +1764,20 @@ void MessageRow::buildReactions(ui::View *col, const model::Message &m) {
         const std::string name = r.name;
         pill->onClick = [&ctx, conv, ts, name, mine] { ctx.backend.react(conv, ts, name, !mine); };
     }
-    // No "+" pill after the chips: reactions are added from the
-    // toolbar's Add reaction.
+    // After the chips, as in Slack: an "Add reaction" pill opening the
+    // picker under it (where the toolbar offers reacting: not on my own
+    // messages in an agent session).
+    if (ctx.backend.isAgentSession(conv) && m.user == st.me)
+        return;
+    auto *add = flow->add<ui::Clickable>();
+    add->setLook({C::Hover, C::Pressed, C::Pressed, C::None, 12});
+    add->style().row().height(24).padding(8, 0).items(Align::Center);
+    add->add<ui::IconView>(gfx::Icon::SmilePlus, 16, C::TextMuted)->setHitTransparent(true);
+    add->setTooltip(tr("Add reaction"));
+    add->onClick = [this, add, ts] {
+        const ui::RectF r = add->windowRect();
+        _list.openReactionPicker(ts, {r.x, r.y + r.h, 0, 0});
+    };
 }
 
 void MessageRow::buildThreadSummary(ui::View *col, const model::Message &m) {

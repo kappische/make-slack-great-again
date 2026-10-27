@@ -14,6 +14,7 @@
 #include "app/screens/common/message_text.h"
 #include "app/screens/common/remote_images.h"
 #include "app/screens/messages/audio_card.h"
+#include "app/screens/messages/emoji_picker.h"
 #include "app/screens/messages/image_cache.h"
 #include "app/screens/messages/message_dialogs.h"
 #include "app/screens/messages/message_list.h"
@@ -1654,6 +1655,43 @@ TEST("actions: hovering an avatar asks for the profile card; right click on the 
     h->injectButton(e.win->native(), plat::Button::Right, true);
     h->injectButton(e.win->native(), plat::Button::Right, false);
     pump(4);
+    CHECK(e.win->topPopup() == nullptr);
+}
+
+TEST("reactions: an Add reaction pill after the chips opens the picker, as in Slack") {
+    Env           e(true);
+    const ConvRef design = e.conv("C0DESIGN");
+    e.list->showConversation(design);
+    pump(10);
+    // The newest message with reactions.
+    const auto &msgs = e.store.conversation(design).messages;
+    Ts          ts   = 0;
+    for (auto it = msgs.rbegin(); it != msgs.rend() && !ts; ++it)
+        if (!it->reactions.empty() && !it->isReply())
+            ts = it->ts;
+    REQUIRE(ts != 0);
+    e.list->scrollToMessage(ts, false, false);
+    pump(6);
+    ui::View *row = e.row(ts);
+    REQUIRE(row != nullptr);
+    ui::View *pill = findByTooltip(row, "Add reaction");
+    REQUIRE(pill != nullptr);
+    // Last in the reactions' row, after a chip.
+    ui::View *flow = pill->parent();
+    REQUIRE(flow->childCount() == e.store.findMessage(design, ts)->reactions.size() + 1);
+    CHECK(flow->child(flow->childCount() - 1) == pill);
+    if (const char *dir = std::getenv("MSGA_TEST_DUMP")) // $MSGA_TEST_DUMP=<dir>: a look
+        e.win->dumpFullRepaint(std::string(dir) + "/reaction_pill.ppm");
+    static_cast<ui::Clickable *>(pill)->activate();
+    pump(2);
+    auto *picker = static_cast<EmojiPicker *>(e.win->topPopup());
+    REQUIRE(picker != nullptr);
+    picker->pick("tada");
+    pump(4);
+    bool tada = false;
+    for (const model::Reaction &r : e.store.findMessage(design, ts)->reactions)
+        tada = tada || (r.name == "tada" && e.store.reactedByMe(r));
+    CHECK(tada);
     CHECK(e.win->topPopup() == nullptr);
 }
 
