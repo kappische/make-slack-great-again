@@ -384,8 +384,12 @@ SlackBackend::Read::~Read() {
             b._app.cancelTimer(id);
 }
 
+// Capped at INT32_MAX ms (~24.8 days): the timer takes an int, and a longer
+// wait (a message scheduled months out) would wrap negative and fire at
+// once, then re-arm and fire again. Firing early is harmless: the caller
+// looks again and re-arms.
 void SlackBackend::Read::later(int64_t ms, std::function<void()> fn) {
-    timers.after(int(std::max<int64_t>(ms / speed, 0)), std::move(fn));
+    timers.after(int(std::clamp<int64_t>(ms / speed, 0, INT32_MAX)), std::move(fn));
 }
 
 void SlackBackend::Read::call(
