@@ -173,6 +173,9 @@ public:
     void           renameConversation(model::ConvRef c);
     // "Channel details" (channel_dialogs.h); failures go to the error banner.
     void           showChannelDetails(model::ConvRef c);
+    // Leaving or archiving the open conversation: go to its sidebar
+    // neighbour first (no-op when c isn't open).
+    void           stepOff(model::ConvRef c);
     // "Find a channel" on its Channels (0) or
     // People (1) tab — a channel opens (joined first), a person's DM opens.
     void           openBrowseDialog(int tab);

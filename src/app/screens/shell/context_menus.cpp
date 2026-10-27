@@ -195,22 +195,10 @@ void Menus::run(int id, uint32_t target) {
         case kDetails:
             _shell.showChannelDetails(target);
             break;
-        case kLeave: {
-            // Leaving the open conversation: go to its neighbour first.
-            if (_shell.current() == target) {
-                const std::vector<ConvRef> order = _shell.sidebar().order();
-                auto                       it    = std::find(order.begin(), order.end(), target);
-                ConvRef                    next  = kNoConv;
-                if (it != order.end() && it + 1 != order.end())
-                    next = *(it + 1);
-                else if (it != order.end() && it != order.begin())
-                    next = *(it - 1);
-                if (next != kNoConv)
-                    _shell.open(next);
-            }
+        case kLeave:
+            _shell.stepOff(target);
             be.leave(target);
             break;
-        }
         case kStopSession:
             be.stopSession(target);
             break;

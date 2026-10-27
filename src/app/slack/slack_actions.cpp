@@ -2292,7 +2292,12 @@ void SlackBackend::addToChannel(ConvRef c, model::UserRef u, Done done) {
         [this, c](const json::Document &) {
             _store.updateConversation(c, [](model::Conversation &x) { ++x.memberCount; });
         },
-        std::move(done)
+        // Already there is what was asked for.
+        [done = std::move(done)](bool ok, const std::string &err) {
+            const bool there = !ok && err == "already_in_channel";
+            if (done)
+                done(ok || there, there ? std::string() : err);
+        }
     );
 }
 

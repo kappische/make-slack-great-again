@@ -275,9 +275,13 @@ private:
         rm.id     = 1;
         rm.label  = i18n::arg(tr("Remove from #%1"), st.conversation(_conv).name);
         rm.danger = true;
-        Menu::popupAt(*w, at, {rm}, [this, u](int) {
+        Menu::popupAt(*w, at, {rm}, [this, store = &st, uid = id](int) {
             const model::ConvRef c = _conv;
             close();
+            // The same workspace, the same person: refs are per Store.
+            const model::UserRef u = &_ctx.store() == store ? store->findUser(uid) : model::kNoUser;
+            if (u == model::kNoUser)
+                return;
             _ctx.backend.removeFromChannel(
                 c, u, [onError = onError](bool ok, const std::string &err) {
                     if (!ok && onError)
@@ -353,8 +357,10 @@ ConvHeader::ConvHeader(screens::Context &ctx, Avatars &avatars) : _ctx(ctx), _av
 #else
     auto *titleBox = heading->add<Clickable>();
     titleBox->setLook({C::None, C::None, C::None, C::None, 0});
-    titleBox->style().flex(1).shrink = 1;
+    titleBox->style().shrink = 1; // the name's width: the rest isn't a control
     titleBox->style().row().items(Align::Center);
+    titleBox->setTooltip(tr("Channel details"));
+    _titleBox         = titleBox;
     titleBox->onClick = [this] {
         const auto &st = _ctx.store();
         if (_conv != kNoConv && _conv < st.conversationCount() &&
@@ -365,6 +371,7 @@ ConvHeader::ConvHeader(screens::Context &ctx, Avatars &avatars) : _ctx(ctx), _av
     _title = titleBox->add<Label>("", Font::HeaderTitle);
     _title->setMaxLines(1);
     _title->style().shrink = 1;
+    heading->add<View>()->style().flex(1);
 #endif
     auto *members = actions->add<MembersButton>();
     members->style().margins(0, 0, 2, 0);
@@ -424,6 +431,11 @@ void ConvHeader::refresh() {
     const auto &c    = st.conversation(_conv);
     const auto  caps = _ctx.backend.capabilities();
     _title->setText(convTitle(st, _conv));
+    if (_titleBox) { // a DM's, a group DM's or a read-only workspace's name is just a name
+        const bool details = !c.isDirect() && caps.channelEditing;
+        _titleBox->setHitTransparent(!details);
+        _titleBox->setFocusable(details);
+    }
     _star->setVisible(true);
     _star->setStarred(c.starred);
     _huddle->setVisible(caps.huddles);

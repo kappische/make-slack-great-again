@@ -2860,6 +2860,10 @@ msgstr "#%1 から削除"
 msgid "Couldn't remove them: %1"
 msgstr "削除できませんでした: %1"
 
+#: src/app/screens/shell/header.cpp
+msgid "Channel details"
+msgstr "チャンネルの詳細"
+
 #: src/app/screens/shell/header.cpp src/app/screens/shell/huddle_banner.cpp
 msgid "Opens the huddle in Slack for web"
 msgstr "Slack（ブラウザ版）でハドルを開きます"

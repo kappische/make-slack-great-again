@@ -2942,9 +2942,28 @@ void Shell::renameConversation(ConvRef c) {
 void Shell::showChannelDetails(ConvRef c) {
     if (!_ctx.backend.capabilities().channelEditing)
         return;
-    shell::showChannelDetails(_ctx, _win, _avatars, c, [this](const std::string &m) {
-        showError(m);
-    });
+    shell::showChannelDetails(
+        _ctx,
+        _win,
+        _avatars,
+        c,
+        [this](const std::string &m) { showError(m); },
+        [this](ConvRef c) { stepOff(c); }
+    );
+}
+
+void Shell::stepOff(ConvRef c) {
+    if (current() != c)
+        return;
+    const std::vector<ConvRef> order = sidebar().order();
+    auto                       it    = std::find(order.begin(), order.end(), c);
+    ConvRef                    next  = kNoConv;
+    if (it != order.end() && it + 1 != order.end())
+        next = *(it + 1);
+    else if (it != order.end() && it != order.begin())
+        next = *(it - 1);
+    if (next != kNoConv)
+        open(next);
 }
 
 void Shell::openBrowseDialog(int tab) {

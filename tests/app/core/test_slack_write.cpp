@@ -845,12 +845,19 @@ TEST("slack write: channel details — rename, topic, description, invite, kick,
     CHECK_FALSE(bad.ok);
     CHECK_STR(bad.err, "not_in_channel");
     CHECK_STR(e.store.conversation(e.general).topic, "Ship it");
+    // Already a member is what was asked for.
+    script("conversations.invite", R"([{"ok":false,"error":"already_in_channel"}])");
+    Result again;
+    e.be->addToChannel(e.general, e.mira, again.cb());
+    REQUIRE(pumpUntil([&] { return again.called; }));
+    CHECK(again.ok);
+    CHECK(e.store.conversation(e.general).memberCount == 3);
     // Unknown people never reach the server.
     Result nobody;
     e.be->addToChannel(e.general, model::UserRef(999), nobody.cb());
     REQUIRE(pumpUntil([&] { return nobody.called; }));
     CHECK_FALSE(nobody.ok);
-    CHECK(Log().count("conversations.invite") == 1);
+    CHECK(Log().count("conversations.invite") == 2);
     // Archived: no longer a channel I'm in.
     e.be->archiveChannel(e.general, ar.cb());
     REQUIRE(pumpUntil([&] { return ar.called; }));

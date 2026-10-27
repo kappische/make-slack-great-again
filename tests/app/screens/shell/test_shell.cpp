@@ -1594,6 +1594,16 @@ TEST("channel details: rename, topic and description save; add people; archive a
     CHECK_STR(h.store.conversation(eng).name, name0 + "-core");
     CHECK_STR(h.store.conversation(eng).topic, topic0 + " now");
     CHECK_STR(h.store.conversation(eng).purpose, "Where builds happen");
+    // A topic someone set while it was open stays: only edits are sent.
+    h.sh->menus().run(shell::Menus::kDetails, eng);
+    pump();
+    h.store.updateConversation(eng, [](model::Conversation &c) { c.topic = "Set elsewhere"; });
+    typeInto(*h.win, "-x");
+    press(*h.win, plat::Key::Enter);
+    pump(30);
+    CHECK_STR(h.store.conversation(eng).name, name0 + "-core-x");
+    CHECK_STR(h.store.conversation(eng).topic, "Set elsewhere");
+    CHECK_STR(shell::channelName(" #Plan B "), "plan-b");
 
     // Add people…: a search, a pick, and they're a member.
     model::UserRef jonas = model::kNoUser;
@@ -1621,7 +1631,11 @@ TEST("channel details: rename, topic and description save; add people; archive a
     CHECK(h.win->topPopup() == nullptr);
     CHECK(isMember());
 
-    // Archive channel…: a confirmation first; Cancel keeps it.
+    // Archive channel…: a confirmation first. The open channel steps aside
+    // to its neighbour, as when leaving.
+    h.sh->open(eng);
+    pump();
+    REQUIRE(h.sh->current() == eng);
     h.sh->menus().run(shell::Menus::kDetails, eng);
     pump();
     auto *archive = findNamed(h.win->topPopup(), "Archive channel\xE2\x80\xA6");
@@ -1636,6 +1650,7 @@ TEST("channel details: rename, topic and description save; add people; archive a
     pump(30);
     CHECK(h.win->topPopup() == nullptr);
     CHECK_FALSE(h.store.conversation(eng).member);
+    CHECK(h.sh->current() != eng);
     // DMs have no details.
     CHECK(
         shell::showChannelDetails(h.ctx, *h.win, h.sh->avatars(), h.conv("D0MIRA"), nullptr) ==
