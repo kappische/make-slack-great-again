@@ -73,20 +73,25 @@ public:
     // hasCanvas: the second tab names the canvas (title, "Untitled"), else
     // offers "Add canvas"; visible = false leaves only Messages.
     void           setCanvas(bool visible, bool hasCanvas, std::string title);
-    void           setActive(int tab); // 0 Messages, 1 canvas
+    // The Pins tab: while the conversation has pins (as in Slack).
+    void           setPins(bool visible);
+    void           setActive(int tab); // 0 Messages, 1 canvas, 2 Pins
     int            active() const { return _active; }
     ui::Clickable *tab(int i) const { return _tabs[i]; }
     std::string    tabText(int i) const;
 
-    std::function<void(int tab)> onSelect;
+    std::function<void(int tab)>                   onSelect;
+    // The pointer entered / left the Pins tab (its window rect): the dropdown.
+    std::function<void(bool on, ui::RectF anchor)> onPinsHover;
 
     void paint(gfx::Painter &p) override;
     void paintOver(gfx::Painter &p) override;
 
 private:
-    void           restyle();
-    ui::Clickable *_tabs[2] = {};
-    int            _active  = 0;
+    void                 restyle();
+    static constexpr int kTabs        = 3;
+    ui::Clickable       *_tabs[kTabs] = {};
+    int                  _active      = 0;
 };
 
 } // namespace shell

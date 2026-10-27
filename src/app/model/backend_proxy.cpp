@@ -319,6 +319,9 @@ void BackendProxy::setZenMode(bool on) {
 void BackendProxy::setLocalName(ConvRef c, std::string name) {
     _t->setLocalName(c, std::move(name));
 }
+void BackendProxy::loadPins(ConvRef c, Done done) {
+    _t->loadPins(c, std::move(done));
+}
 void BackendProxy::loadChannelCanvas(ConvRef c, std::function<void(std::string)> done) {
     _t->loadChannelCanvas(c, std::move(done));
 }

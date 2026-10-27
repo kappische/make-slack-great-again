@@ -490,6 +490,8 @@ public:
         label->setHitTransparent(true);
     }
     void setText(std::string t) {
+        if (t == label->text())
+            return; // every header refresh sets it: measuring again would reshape
         label->setText(std::move(t));
         fit();
     }
@@ -519,9 +521,15 @@ public:
             color(active ? C::Text : C::TextMuted)
         );
     }
-    Icon   icon;
-    Label *label;
-    bool   active = false;
+    bool onEvent(Event &e) override {
+        if ((e.type == EventType::PointerEnter || e.type == EventType::PointerLeave) && onHover)
+            onHover(e.type == EventType::PointerEnter);
+        return Clickable::onEvent(e);
+    }
+    std::function<void(bool on)> onHover;
+    Icon                         icon;
+    Label                       *label;
+    bool                         active = false;
 };
 
 } // namespace
@@ -532,7 +540,13 @@ ConvTabs::ConvTabs() {
     style().items(Align::Start);
     _tabs[0] = add<Tab>(Icon::MessageCircle, tr("Messages"));
     _tabs[1] = add<Tab>(Icon::StickyNotePlus, tr("Add canvas"));
-    for (int i = 0; i < 2; ++i) {
+    _tabs[2] = add<Tab>(Icon::Pin, tr("Pins"));
+    _tabs[2]->setVisible(false);
+    static_cast<Tab *>(_tabs[2])->onHover = [this](bool on) {
+        if (onPinsHover)
+            onPinsHover(on, _tabs[2]->windowRect());
+    };
+    for (int i = 0; i < kTabs; ++i) {
         static_cast<Tab *>(_tabs[i])->fit();
         _tabs[i]->onClick = [this, i] {
             if (i == _active)
@@ -557,9 +571,17 @@ void ConvTabs::setCanvas(bool visible, bool hasCanvas, std::string title) {
         setActive(0); // can't stay on a hidden tab
 }
 
+void ConvTabs::setPins(bool visible) {
+    if (_tabs[2]->visible() == visible)
+        return;
+    _tabs[2]->setVisible(visible);
+    if (!visible && _active == 2)
+        setActive(0);
+}
+
 void ConvTabs::setActive(int tab) {
     _active = tab;
-    for (int i = 0; i < 2; ++i)
+    for (int i = 0; i < kTabs; ++i)
         static_cast<Tab *>(_tabs[i])->setActive(i == tab);
     update();
 }

@@ -28,6 +28,7 @@
 #include "screens/shell/context_menus.h"
 #include "screens/shell/header.h"
 #include "screens/shell/huddle_banner.h"
+#include "screens/shell/pins.h"
 #include "screens/shell/sidebar_footer.h"
 #include "screens/shell/profile_card.h"
 #include "screens/shell/shell_dialogs.h"
@@ -3226,4 +3227,54 @@ TEST("title bar: controls take their presses, empty space drags the window") {
     CHECK(at(search) == H::Client);
     CHECK(at({400, 11}) == H::Caption);
 #endif
+}
+
+TEST("pins: the tab once a channel has pins; hover drops them down; a click shows the page") {
+    Harness       h;
+    const ConvRef general = h.conv("C0GENERAL");
+    h.sh->open(general);
+    shell::ConvTabs &tabs = h.sh->tabs();
+    REQUIRE(until([&] { return tabs.tab(2)->visible(); })); // pins.list answered
+    CHECK_STR(tabs.tabText(2), "Pins");
+    shell::PinsHover &hover = h.sh->pinsHover();
+    // Pointing at the tab: the dropdown after a moment, gone after leaving.
+    hover.hoverTab(true, general, tabs.tab(2)->windowRect());
+    CHECK(hover.popup() == nullptr); // not at once
+    REQUIRE(until([&] { return hover.popup() != nullptr; }));
+    pump();
+    if (const char *dir = std::getenv("MSGA_TEST_DUMP"))
+        h.win->dumpFullRepaint(std::string(dir) + "/pins_dropdown.ppm");
+    hover.hoverTab(false, general, {});
+    REQUIRE(until([&] { return hover.popup() == nullptr; }));
+    // A click: the page in the message area, one row per pin.
+    static_cast<ui::Clickable *>(tabs.tab(2))->activate();
+    pump();
+    shell::PinsPage &page = h.sh->pinsPage();
+    CHECK(page.visible());
+    CHECK(tabs.active() == 2);
+    CHECK_FALSE(h.sh->composer().visible());
+    REQUIRE(until([&] { return page.list().count() == 1; }));
+    if (const char *dir = std::getenv("MSGA_TEST_DUMP"))
+        h.win->dumpFullRepaint(std::string(dir) + "/pins_page.ppm");
+    // Pinning here adds to it at once, the newest first.
+    const Ts later = h.store.conversation(general).messages.back().ts;
+    h.backend.setPinned(general, later, true);
+    pump();
+    REQUIRE(page.list().count() == 2);
+    REQUIRE(h.store.pins(general) != nullptr);
+    CHECK(h.store.pins(general)->front().ts == later);
+    // A row: back on Messages, at the message.
+    page.list().activate(0);
+    pump();
+    CHECK_FALSE(page.visible());
+    CHECK(tabs.active() == 0);
+    CHECK(h.sh->composer().visible());
+    CHECK(h.sh->current() == general);
+    // No pins: no tab (a DM with none).
+    h.backend.setPinned(general, later, false);
+    const ConvRef mira = h.conv("D0MIRA");
+    h.sh->open(mira);
+    REQUIRE(until([&] { return h.store.pins(mira) != nullptr; }));
+    pump();
+    CHECK_FALSE(tabs.tab(2)->visible());
 }

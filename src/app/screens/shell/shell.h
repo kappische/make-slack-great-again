@@ -38,6 +38,8 @@ namespace shell {
 class CanvasPage;
 class ConvHeader;
 class OverviewPage;
+class PinsHover;
+class PinsPage;
 class TeammatePage;
 class SavedPage;
 class ScheduledPage;
@@ -164,8 +166,14 @@ public:
     MessageSearch *messageSearch() const { return _search; }
     QuickSwitcher *quickSwitcher() const { return _switcher; }
     void           showCanvas(bool on); // the header's tabs
+    void           showPins();          // the Pins tab (pins.h)
+    // A pinned message clicked: Messages, at the message.
+    void           openPin(model::ConvRef c, model::Ts ts, model::Ts thread);
     void           lookUpCanvas(model::ConvRef conv);
     CanvasPage    &canvasPage() const { return *_canvas; }
+    PinsPage      &pinsPage() const { return *_pins; }
+    PinsHover     &pinsHover() const { return *_pinsHover; }
+    ConvTabs      &tabs() const { return *_tabs; }
     // The profile card; beside `anchor` (window rect of the avatar/name)
     // when given, else centred near the top.
     void           showProfile(model::UserRef u, ui::RectF anchor = {});
@@ -441,7 +449,9 @@ private:
     HuddleBanner  *_huddleBanner            = nullptr;
     TypingIndicator              *_typing   = nullptr;
     ui::View                     *_messages = nullptr, *_mainPane = nullptr;
-    CanvasPage                   *_canvas   = nullptr;
+    CanvasPage                   *_canvas = nullptr;
+    PinsPage                     *_pins   = nullptr;
+    std::unique_ptr<PinsHover>    _pinsHover;
     ui::View                     *_welcome  = nullptr; // the shortcuts panel (no conversation open)
     ui::View                     *_splitter = nullptr;
     ThreadArea                   *_thread   = nullptr;

@@ -774,7 +774,7 @@ msgstr "%1 · %2による文字起こし"
 msgid "Transcript (auto-generated)"
 msgstr "文字起こし（自動生成）"
 
-#: src/app/screens/messages/audio_card.cpp
+#: src/app/screens/messages/audio_card.cpp src/app/screens/shell/pins.cpp
 msgid "Loading…"
 msgstr "読み込み中…"
 
@@ -2821,6 +2821,10 @@ msgid "Add canvas"
 msgstr "canvasを追加"
 
 #: src/app/screens/shell/header.cpp
+msgid "Pins"
+msgstr "ピン留め"
+
+#: src/app/screens/shell/header.cpp
 msgid "Untitled"
 msgstr "無題"
 
@@ -2843,6 +2847,10 @@ msgstr "検索を閉じる"
 #: src/app/screens/shell/message_search.cpp
 msgid "No results found."
 msgstr "結果が見つかりませんでした。"
+
+#: src/app/screens/shell/pins.cpp
+msgid "No pinned messages"
+msgstr "ピン留めされたメッセージはありません"
 
 #: src/app/screens/shell/profile_card.cpp
 msgid "Workspace Owner"

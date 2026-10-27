@@ -1009,6 +1009,35 @@ void Store::removeScheduled(const std::string &id) {
     emit({ChangeKind::Meta});
 }
 
+const std::vector<Message> *Store::pins(ConvRef c) const {
+    const auto it = _pins.find(c);
+    return it == _pins.end() ? nullptr : &it->second;
+}
+
+void Store::setPins(ConvRef c, std::vector<Message> pins) {
+    const auto it = _pins.find(c);
+    if (it != _pins.end() && it->second == pins)
+        return;
+    _pins[c] = std::move(pins);
+    emit({ChangeKind::Meta, c});
+}
+
+void Store::pinChanged(ConvRef c, const Message &m, bool pinned) {
+    const auto it = _pins.find(c);
+    if (it == _pins.end())
+        return; // not loaded: the next look gets it
+    std::vector<Message> &v = it->second;
+    const auto            found =
+        std::find_if(v.begin(), v.end(), [&](const Message &p) { return p.ts == m.ts; });
+    if (pinned == (found != v.end()))
+        return;
+    if (pinned)
+        v.insert(v.begin(), m.clone());
+    else
+        v.erase(found);
+    emit({ChangeKind::Meta, c});
+}
+
 const Store::Usergroup *Store::findUsergroup(std::string_view id) const {
     for (const Usergroup &g : _usergroups)
         if (g.id == id)

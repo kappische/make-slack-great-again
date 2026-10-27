@@ -1252,6 +1252,8 @@ void SlackBackend::setPinned(ConvRef conv, Ts ts, bool pinned) {
             m.pinned   = on;
             m.pinnedBy = on ? me : model::kNoUser;
         });
+        if (const model::Message *m = _store.findMessage(conv, ts))
+            _store.pinChanged(conv, *m, on); // the Pins tab follows
     };
     if (!_store.findMessage(conv, ts))
         return;
@@ -1896,6 +1898,52 @@ std::string markdownContent(std::string_view markdown) {
 }
 
 } // namespace
+
+// pins.list: the pinned items, of which messages are ours (files and
+// others aren't shown), the latest pinned first.
+void SlackBackend::loadPins(ConvRef conv, Done done) {
+    const std::string &id = convId(conv);
+    if (id.empty()) {
+        _write->answer(std::move(done), false, "channel_not_found");
+        return;
+    }
+    readCall(
+        "pins.list",
+        net::formEncode({{"channel", id}}),
+        [this, conv, done = std::move(done)](const json::Document &doc, const std::string &err) {
+            if (err == "cancelled")
+                return;
+            if (!err.empty()) {
+                LOG_WARN("slack", "pins.list: %s", err.c_str());
+                if (done)
+                    done(false, err);
+                return;
+            }
+            std::vector<std::pair<int64_t, model::Message>> got;
+            for (const json::Value it : doc.root()["items"]) {
+                if (it["type"].str() != "message" || !it["message"].isObject())
+                    continue;
+                model::Message m = mapjson::toMessage(it["message"], _store);
+                if (!m.ts)
+                    continue;
+                m.pinned = true;
+                if (const std::string_view by = it["created_by"].str(); !by.empty())
+                    m.pinnedBy = _store.internUser(by);
+                got.emplace_back(it["created"].integer(), std::move(m));
+            }
+            std::stable_sort(got.begin(), got.end(), [](const auto &a, const auto &b) {
+                return a.first > b.first;
+            });
+            std::vector<model::Message> pins;
+            pins.reserve(got.size());
+            for (auto &g : got)
+                pins.push_back(std::move(g.second));
+            _store.setPins(conv, std::move(pins));
+            if (done)
+                done(true, {});
+        }
+    );
+}
 
 void SlackBackend::loadChannelCanvas(ConvRef conv, std::function<void(std::string)> done) {
     const std::string &id = convId(conv);

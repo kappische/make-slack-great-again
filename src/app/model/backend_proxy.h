@@ -136,6 +136,7 @@ public:
     void    markThreadRead(ConvRef c, Ts root, Ts ts) override;
     int64_t nowSecs() const override;
     void    loadChannelCanvas(ConvRef c, std::function<void(std::string)> done) override;
+    void    loadPins(ConvRef c, Done done) override;
     void    loadCanvasMeta(const std::string &fileId, CanvasMetaDone done) override;
     void    loadCanvasContent(const std::string &fileId, CanvasHtmlDone done) override;
     void    createChannelCanvas(ConvRef c, std::string markdown, CanvasCreated done) override;

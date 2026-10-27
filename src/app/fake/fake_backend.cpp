@@ -330,6 +330,28 @@ void FakeBackend::createChannel(std::string name, bool isPrivate, ConvDone done)
 
 void FakeBackend::setPinned(ConvRef conv, Ts ts, bool pinned) {
     setMessageFlag(conv, ts, true, pinned);
+    if (const model::Message *m = _store.findMessage(conv, ts))
+        _store.pinChanged(conv, *m, pinned);
+}
+
+// The whole history is in the Store: its pinned messages, the newest first
+// (the fixture has no pin times).
+void FakeBackend::loadPins(ConvRef conv, Done done) {
+    later(kReadLatencyMs, [this, conv, done = std::move(done)] {
+        if (conv >= _store.conversationCount()) {
+            if (done)
+                done(false, "no such conversation");
+            return;
+        }
+        std::vector<model::Message> pins;
+        const auto                 &msgs = _store.conversation(conv).messages;
+        for (auto it = msgs.rbegin(); it != msgs.rend(); ++it)
+            if (it->pinned)
+                pins.push_back(it->clone());
+        _store.setPins(conv, std::move(pins));
+        if (done)
+            done(true, {});
+    });
 }
 
 void FakeBackend::setSaved(ConvRef conv, Ts ts, bool saved) {
@@ -360,6 +382,7 @@ FakeBackend::Capabilities FakeBackend::capabilities() const {
     c.messageReminders = true;
     c.canvases         = true;
     c.fileUpload       = true;
+    c.pins             = true;
     return c;
 }
 

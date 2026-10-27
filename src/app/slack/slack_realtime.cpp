@@ -257,6 +257,32 @@ void SlackBackend::Live::apply(const json::Value &ev, bool ours) {
         );
         return;
     }
+    if (type == "pin_added" || type == "pin_removed") {
+        // A message pinned or unpinned (here or elsewhere): its "Pinned by"
+        // line and the Pins tab follow.
+        const json::Value item = ev["item"];
+        if (item["type"].str() != "message")
+            return;
+        std::string_view ch = ev["channel_id"].str();
+        if (ch.empty())
+            ch = item["channel"].str();
+        const ConvRef c = s.findConversation(ch);
+        if (c == kNoConv)
+            return;
+        model::Message m = mapjson::toMessage(item["message"], s);
+        if (!m.ts)
+            return;
+        const bool    on = type == "pin_added";
+        const UserRef by = on ? s.internUser(ev["user"].str()) : kNoUser;
+        m.pinned         = on;
+        m.pinnedBy       = by;
+        s.updateMessage(c, m.ts, [on, by](model::Message &x) {
+            x.pinned   = on;
+            x.pinnedBy = by;
+        });
+        s.pinChanged(c, m, on);
+        return;
+    }
     if (type == "channel_marked" || type == "group_marked" || type == "im_marked" ||
         type == "mpim_marked") {
         const ConvRef c = s.findConversation(ev["channel"].str());

@@ -804,6 +804,51 @@ TEST("slack write: pins, stars, leave, members, DMs") {
     e.be->onError = nullptr;
 }
 
+TEST("slack write: pins — pins.list, the latest pinned first; a pin here joins the list") {
+    if (!haveServer())
+        return;
+    Env e;
+    script(
+        "pins.list",
+        R"([{"ok":true,"items":[
+            {"type":"message","created":1700000100,"created_by":"UMIRA","channel":"C1",
+             "message":{"type":"message","user":"UME","text":"older pin","ts":"1700000000.000300"}},
+            {"type":"file","created":1700000300,"file":{"id":"F1"}},
+            {"type":"message","created":1700000200,"created_by":"UME","channel":"C1",
+             "message":{"type":"message","user":"UMIRA","text":"newer pin","ts":"1700000000.000400"}}
+        ]}])"
+    );
+    CHECK(e.be->capabilities().pins);
+    CHECK(e.store.pins(e.general) == nullptr); // not asked yet
+    Result r;
+    e.be->loadPins(e.general, r.cb());
+    REQUIRE(pumpUntil([&] { return r.called; }));
+    CHECK(r.ok);
+    CHECK_STR(Log().get("pins.list")["form"]["channel"].str(), "C1");
+    const auto *pins = e.store.pins(e.general);
+    REQUIRE(pins != nullptr);
+    REQUIRE(pins->size() == 2); // messages only
+    CHECK_STR((*pins)[0].text, "newer pin");
+    CHECK((*pins)[0].pinned);
+    CHECK((*pins)[0].pinnedBy == e.me);
+    CHECK_STR((*pins)[1].text, "older pin");
+    CHECK((*pins)[1].pinnedBy == e.mira);
+    // Pinning a loaded message: at the top at once; unpinning drops it.
+    e.be->setPinned(e.general, e.old, true);
+    REQUIRE(e.store.pins(e.general)->size() == 3);
+    CHECK(e.store.pins(e.general)->front().ts == e.old);
+    e.be->setPinned(e.general, e.old, false);
+    CHECK(e.store.pins(e.general)->size() == 2);
+    // A refusal (no pins:read on an OAuth token) leaves what there was.
+    script("pins.list", R"([{"ok":false,"error":"missing_scope"}])");
+    Result bad;
+    e.be->loadPins(e.general, bad.cb());
+    REQUIRE(pumpUntil([&] { return bad.called; }));
+    CHECK_FALSE(bad.ok);
+    CHECK_STR(bad.err, "missing_scope");
+    CHECK(e.store.pins(e.general)->size() == 2);
+}
+
 TEST("slack write: status, profile and photo") {
     if (!haveServer())
         return;
