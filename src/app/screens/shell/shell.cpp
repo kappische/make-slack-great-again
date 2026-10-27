@@ -524,10 +524,13 @@ public:
 };
 
 // The splitter handle between the messages and the thread panel: 1 px, with the panel's soft shadow
-// cast 6 px onto the chat.
+// cast 6 px onto the chat. A drag sets the panel's width at the press less how far the pointer went
+// since, as ListHandle does: adding each move's step to width() would read the last layout's width,
+// which lags the moves, so the panel would fall behind the pointer and never catch up.
 class Splitter final : public View {
 public:
-    explicit Splitter(std::function<void(float dx)> onDrag) : _onDrag(std::move(onDrag)) {
+    Splitter(std::function<float()> panelWidth, std::function<void(float width)> onDrag)
+        : _panelWidth(std::move(panelWidth)), _onDrag(std::move(onDrag)) {
         style().width(1).noShrink();
         setCursor(plat::Cursor::ResizeH);
         setPaintOutset(6);
@@ -539,13 +542,12 @@ public:
     bool onEvent(Event &e) override {
         switch (e.type) {
         case EventType::PointerDown:
-            _last = e.windowPos.x;
+            _startX = e.windowPos.x;
+            _startW = _panelWidth();
             return true;
         case EventType::PointerMove:
-            if (window() && window()->capture() == this) {
-                _onDrag(e.windowPos.x - _last);
-                _last = e.windowPos.x;
-            }
+            if (window() && window()->capture() == this)
+                _onDrag(_startW - (e.windowPos.x - _startX)); // the panel is on the right
             return true;
         default:
             return false;
@@ -553,8 +555,9 @@ public:
     }
 
 private:
+    std::function<float()>     _panelWidth;
     std::function<void(float)> _onDrag;
-    float                      _last = 0;
+    float                      _startX = 0, _startW = 0;
 };
 
 // The right-hand thread panel: the messages screens' ThreadPanel with our
@@ -1415,14 +1418,16 @@ void Shell::buildMain(View *parent) {
             _composer->edit().focus();
     };
 
-    _splitter = body->add<Splitter>([this](float dx) {
-        // The splitter: the panel at least 100 px, the messages 200.
-        const float total = _thread->parent()->width();
-        _settings.threadWidth =
-            int(std::clamp(_thread->width() - dx, 100.f, std::max(100.f, total - 200)));
-        _thread->style().width(float(_settings.threadWidth));
-    });
-    _thread   = body->add<ThreadArea>(_ctx, _avatars, _drafts);
+    _splitter = body->add<Splitter>(
+        [this] { return _thread->width(); },
+        [this](float w) {
+            // The splitter: the panel at least 100 px, the messages 200.
+            const float total     = _thread->parent()->width();
+            _settings.threadWidth = int(std::clamp(w, 100.f, std::max(100.f, total - 200)));
+            _thread->style().width(float(_settings.threadWidth));
+        }
+    );
+    _thread = body->add<ThreadArea>(_ctx, _avatars, _drafts);
     for (Composer *c : {_composer, _thread->composer})
         setupComposer(*c);
     applyScheduleSend(); // the demo's backend is in place already

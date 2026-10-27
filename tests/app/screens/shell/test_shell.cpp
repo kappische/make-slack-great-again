@@ -1576,6 +1576,34 @@ TEST("find a channel: an unjoined channel is joined and opens; People opens the 
     CHECK(h.sh->current() == h.conv("D0JONAS"));
 }
 
+TEST("thread splitter: a fast drag keeps up with the pointer") {
+    Harness       h;
+    const ConvRef design = h.conv("C0DESIGN");
+    const Ts      root   = h.backend.findTs(design, "Proposal B");
+    REQUIRE(root != 0);
+    h.sh->openThread(design, root);
+    pump();
+    ui::View *panel = h.sh->threadPanel();
+    REQUIRE(panel != nullptr);
+    const ui::RectF r  = panel->windowRect();
+    const float     w0 = panel->width();
+    auto           *th = app().platform().testHooks();
+    // The 1-px handle is just left of the panel.
+    const float     x = r.x - 1, y = r.y + 100;
+    REQUIRE(th->injectPointerMove(h.win->native(), {x + 0.5f, y}));
+    app().pump(0);
+    th->injectButton(h.win->native(), plat::Button::Left, true);
+    app().pump(0);
+    // Several moves before a layout, as a quick drag delivers them: the
+    // panel ends as wide as the whole way, not one step's worth.
+    for (int i = 1; i <= 5; ++i)
+        th->injectPointerMove(h.win->native(), {x + 0.5f - 20 * float(i), y});
+    pump();
+    th->injectButton(h.win->native(), plat::Button::Left, false);
+    pump();
+    CHECK(std::fabs(panel->width() - (w0 + 100)) <= 1);
+}
+
 TEST("create a channel: a name, Next, Private, Create — the backend makes it") {
     Harness h;
     h.sh->openCreateChannel();
