@@ -152,11 +152,6 @@ private:
     bool         _tile = false;
 };
 
-// A picture shown inline (a canvas is a card).
-bool isInlinePreview(const model::File &f) {
-    return f.hasPreview() && !(f.isCanvas() && !f.id.empty());
-}
-
 // The multi-image gallery (2+ previews): equal
 // cover-cropped tiles 180 px high in rows of up to three (two for four
 // pictures), 8 px apart, at most 520 wide; each row fills the width (a short
@@ -410,6 +405,10 @@ std::string huddleDuration(int64_t secs) {
 }
 
 } // namespace
+
+bool isInlinePreview(const model::File &f) {
+    return f.hasPreview() && !(f.isCanvas() && !f.id.empty());
+}
 
 // Who is (or was) in the huddle and for how long —
 // "You" first, then the others in Slack's order, more than three cut to two
