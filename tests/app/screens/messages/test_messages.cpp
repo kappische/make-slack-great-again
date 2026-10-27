@@ -1658,7 +1658,7 @@ TEST("actions: hovering an avatar asks for the profile card; right click on the 
     CHECK(e.win->topPopup() == nullptr);
 }
 
-TEST("reactions: an Add reaction pill after the chips opens the picker, as in Slack") {
+TEST("reactions: an Add reaction pill after the chips, on hover, opens the picker") {
     Env           e(true);
     const ConvRef design = e.conv("C0DESIGN");
     e.list->showConversation(design);
@@ -1680,7 +1680,19 @@ TEST("reactions: an Add reaction pill after the chips opens the picker, as in Sl
     ui::View *flow = pill->parent();
     REQUIRE(flow->childCount() == e.store.findMessage(design, ts)->reactions.size() + 1);
     CHECK(flow->child(flow->childCount() - 1) == pill);
+    // As in Slack's desktop app: there, but not shown or hit, until the
+    // message is hovered.
+    auto           *h  = app().platform().testHooks();
+    const ui::RectF rr = row->windowRect();
+    h->injectPointerMove(e.win->native(), {rr.x + 300, -50}); // off the list
+    pump(4);
+    CHECK(pill->hitTest({4, 4}) == nullptr);
     if (const char *dir = std::getenv("MSGA_TEST_DUMP")) // $MSGA_TEST_DUMP=<dir>: a look
+        e.win->dumpFullRepaint(std::string(dir) + "/reaction_pill_rest.ppm");
+    h->injectPointerMove(e.win->native(), {rr.x + 300, rr.y + 10});
+    pump(4);
+    CHECK(pill->hitTest({4, 4}) == pill);
+    if (const char *dir = std::getenv("MSGA_TEST_DUMP"))
         e.win->dumpFullRepaint(std::string(dir) + "/reaction_pill.ppm");
     static_cast<ui::Clickable *>(pill)->activate();
     pump(2);

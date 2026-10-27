@@ -1717,6 +1717,40 @@ void MessageRow::buildUnfurl(ui::View *col, const model::Message &m, size_t inde
     buildFilesSection(card, a.files, 0);
 }
 
+namespace {
+
+// The "Add reaction" pill after the chips: as in Slack's desktop app, only
+// while its message is hovered (or has the toolbar). It keeps its place in
+// the row the rest of the time, so nothing moves when the pointer arrives;
+// it just isn't painted or hit.
+class AddReactionPill final : public ui::Clickable {
+public:
+    AddReactionPill(MessageList &list, const ui::View &row) : _list(list), _row(row) {
+        setLook({C::Hover, C::Pressed, C::Pressed, C::None, 12});
+        style().size(32, 24).noShrink();
+        setTooltip(tr("Add reaction"));
+    }
+    bool shown() const {
+        return _row.hovered() || static_cast<const ui::View *>(_list.toolbarRow()) == &_row;
+    }
+    // The icon is painted here, not a child view, so it hides with the pill.
+    void paint(gfx::Painter &p) override {
+        if (!shown())
+            return;
+        ui::Clickable::paint(p);
+        gfx::drawIcon(p, gfx::Icon::SmilePlus, {8, 4, 16, 16}, ui::color(C::TextMuted));
+    }
+    ui::View *hitTest(ui::PointF local) override {
+        return shown() ? ui::Clickable::hitTest(local) : nullptr;
+    }
+
+private:
+    MessageList    &_list;
+    const ui::View &_row;
+};
+
+} // namespace
+
 void MessageRow::buildReactions(ui::View *col, const model::Message &m) {
     Context     &ctx  = _list.ctx();
     const Store &st   = ctx.store;
@@ -1765,15 +1799,11 @@ void MessageRow::buildReactions(ui::View *col, const model::Message &m) {
         pill->onClick = [&ctx, conv, ts, name, mine] { ctx.backend.react(conv, ts, name, !mine); };
     }
     // After the chips, as in Slack: an "Add reaction" pill opening the
-    // picker under it (where the toolbar offers reacting: not on my own
-    // messages in an agent session).
+    // picker under it, on hover (where the toolbar offers reacting: not on
+    // my own messages in an agent session).
     if (ctx.backend.isAgentSession(conv) && m.user == st.me)
         return;
-    auto *add = flow->add<ui::Clickable>();
-    add->setLook({C::Hover, C::Pressed, C::Pressed, C::None, 12});
-    add->style().row().height(24).padding(8, 0).items(Align::Center);
-    add->add<ui::IconView>(gfx::Icon::SmilePlus, 16, C::TextMuted)->setHitTransparent(true);
-    add->setTooltip(tr("Add reaction"));
+    auto *add    = flow->add<AddReactionPill>(_list, *this);
     add->onClick = [this, add, ts] {
         const ui::RectF r = add->windowRect();
         _list.openReactionPicker(ts, {r.x, r.y + r.h, 0, 0});
