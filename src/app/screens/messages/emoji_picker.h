@@ -40,9 +40,15 @@ public:
     // The recent emoji and the skin tone: the shell hands back what it
     // saved, and is told whenever a pick or a tone changes either.
     using StateObserver = std::function<void(const std::vector<std::string> &recent, int tone)>;
-    static void restoreState(std::vector<std::string> recent, int tone);
-    static void setStateObserver(StateObserver fn);
-    bool        onEvent(ui::Event &e) override;
+    static void                     restoreState(std::vector<std::string> recent, int tone);
+    static void                     setStateObserver(StateObserver fn);
+    // The reactions the message toolbar offers in one click, as Slack's: the
+    // n most recently used, topped up with Slack's defaults (✅ 👀 🙌).
+    static std::vector<std::string> quickReactions(size_t n = 3);
+    // An emoji used without the picker (a quick reaction): it leads
+    // "Frequently used" as a pick would.
+    static void                     noteUsed(const std::string &name);
+    bool                            onEvent(ui::Event &e) override;
 
 private:
     bool searchKey(const ui::Event &e);

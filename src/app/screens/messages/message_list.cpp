@@ -504,6 +504,47 @@ public:
     }
 };
 
+// A one-click reaction on the hover toolbar (Slack's three): its emoji (a
+// custom one's picture), the same wash as the buttons, ":name:" as its
+// tooltip at once.
+class QuickReact final : public ui::Clickable {
+public:
+    QuickReact() {
+        style().size(28, 28).noShrink().row().items(ui::Align::Center);
+        style().justifyContent(ui::Justify::Center);
+        setFocusable(false);
+        setLook({C::None, C::None, C::None, C::None, 0});
+    }
+    void set(Context &ctx, const std::string &name) {
+        if (name == _name)
+            return;
+        _name = name;
+        clearChildren();
+        const model::Store::EmojiGlyph g = ctx.store().emojiFor(name);
+        if (!g.image.empty()) {
+            auto *img = add<CachedImage>(ctx.images, g.image);
+            img->setPlaceholder(C::None);
+            img->style().size(18, 18);
+            img->setHitTransparent(true);
+        } else {
+            auto *l = add<ui::Label>(g.unicode.empty() ? ":" + name + ":" : g.unicode, Font::Body);
+            l->setMaxLines(1);
+            l->setHitTransparent(true);
+        }
+        setTooltip(":" + name + ":");
+    }
+    const std::string &name() const { return _name; }
+    bool               tooltipImmediate() const override { return true; }
+    void               paint(gfx::Painter &p) override {
+        if (hovered())
+            p.fillRoundRect({1, 1, 26, 26}, 5, ui::color(C::RowHover));
+        View::paint(p);
+    }
+
+private:
+    std::string _name;
+};
+
 // ── MessageList ─────────────────────────────────────────────────────────────
 
 MessageList::MessageList(Context &ctx)
@@ -535,7 +576,25 @@ MessageList::MessageList(Context &ctx)
     _typing->setMaxLines(1);
     // The hover toolbar: Add reaction, Forward message, Save for later, Ask
     // agent (agent thread links), More actions.
-    _toolbar          = add<ToolbarCard>();
+    _toolbar = add<ToolbarCard>();
+    // Slack's quick reactions first: a click adds it (or takes mine back).
+    for (int i = 0; i < 3; ++i) {
+        auto *q    = _toolbar->add<QuickReact>();
+        q->onClick = [this, q] {
+            if (!_toolbarRow || q->name().empty())
+                return;
+            const Ts              ts   = _toolbarRow->ts();
+            const model::Message *m    = message(ts);
+            bool                  mine = false;
+            if (m)
+                for (const model::Reaction &r : m->reactions)
+                    mine = mine || (r.name == q->name() && _ctx.store().reactedByMe(r));
+            if (!mine)
+                EmojiPicker::noteUsed(q->name());
+            _ctx.backend.react(_conv, ts, q->name(), !mine);
+        };
+        _tbQuick.push_back(q);
+    }
     _tbEmoji          = _toolbar->add<ActionButton>(gfx::Icon::Smile, tr("Add reaction"));
     _tbEmoji->onClick = [this] {
         if (_toolbarRow) {
@@ -1319,6 +1378,14 @@ void MessageList::placeToolbar() {
     // Emoji: caps.reactions, except on my own messages in an agent session;
     // Save: caps.messageReminders (not agent sessions).
     _tbEmoji->setVisible(!(agent && m->user == _ctx.store().me));
+    // The quick reactions follow what was used last (as the picker's
+    // "Frequently used"), where reacting is offered at all.
+    const std::vector<std::string> quick = EmojiPicker::quickReactions(_tbQuick.size());
+    for (size_t i = 0; i < _tbQuick.size(); ++i) {
+        _tbQuick[i]->setVisible(_tbEmoji->visible() && i < quick.size());
+        if (i < quick.size())
+            _tbQuick[i]->set(_ctx, quick[i]);
+    }
     _tbSave->setVisible(!agent && _ctx.backend.capabilities().messageReminders);
     const bool saved = m->saved || _ctx.store().reminderAt(_conv, m->ts) != 0;
     _tbSave->setIcon(saved ? gfx::Icon::BookmarkFilled : gfx::Icon::Bookmark);

@@ -14,6 +14,7 @@
 #include "app/screens/common/message_text.h"
 #include "app/screens/common/remote_images.h"
 #include "app/screens/messages/audio_card.h"
+#include "app/screens/messages/emoji_picker.h"
 #include "app/screens/messages/image_cache.h"
 #include "app/screens/messages/message_dialogs.h"
 #include "app/screens/messages/message_list.h"
@@ -1657,7 +1658,8 @@ TEST("actions: hovering an avatar asks for the profile card; right click on the 
     CHECK(e.win->topPopup() == nullptr);
 }
 
-TEST("actions: the hover toolbar — react, forward, save, more; save toggles") {
+TEST("actions: the hover toolbar — quick reactions, react, forward, save, more; save toggles") {
+    EmojiPicker::restoreState({}, 0); // nothing used yet: Slack's defaults
     Env           e(true);
     const ConvRef design  = e.conv("C0DESIGN");
     ConvRef       fwdConv = model::kNoConv;
@@ -1677,32 +1679,56 @@ TEST("actions: the hover toolbar — react, forward, save, more; save toggles") 
     const ui::RectF rr = row->windowRect();
     h->injectPointerMove(e.win->native(), {rr.x + 300, rr.y + 20});
     pump(4);
-    // The four buttons, their tooltips, 28-px buttons in a 16/12-padded card
-    // (Ask agent hidden: no agent links here).
+    // Three quick reactions, then the four buttons, their tooltips, 28-px
+    // buttons in a 16/12-padded card (Ask agent hidden: no agent links here).
     ui::View *fwd = findByTooltip(e.win->root().child(0), "Forward message");
     REQUIRE(fwd != nullptr);
     ui::View *card = fwd->parent();
     REQUIRE(card->visible());
-    REQUIRE(card->childCount() == 5);
-    CHECK_STR(card->child(0)->tooltip(), "Add reaction");
-    CHECK_STR(card->child(2)->tooltip(), "Save for later");
-    CHECK_FALSE(card->child(3)->visible());
-    CHECK_STR(card->child(4)->tooltip(), "More actions");
-    CHECK(near(card->frame().w, 16 + 4 * 28 + 3 * 4) && near(card->frame().h, 40));
+    REQUIRE(card->childCount() == 8);
+    CHECK_STR(card->child(0)->tooltip(), ":white_check_mark:");
+    CHECK_STR(card->child(1)->tooltip(), ":eyes:");
+    CHECK_STR(card->child(2)->tooltip(), ":raised_hands:");
+    CHECK_STR(card->child(3)->tooltip(), "Add reaction");
+    CHECK_STR(card->child(5)->tooltip(), "Save for later");
+    CHECK_FALSE(card->child(6)->visible());
+    CHECK_STR(card->child(7)->tooltip(), "More actions");
+    CHECK(near(card->frame().w, 16 + 7 * 28 + 6 * 4) && near(card->frame().h, 40));
+    if (const char *dir = std::getenv("MSGA_TEST_DUMP")) // $MSGA_TEST_DUMP=<dir>: a look
+        e.win->dumpFullRepaint(std::string(dir) + "/toolbar.ppm");
+    // A quick reaction: one click adds it, a second takes it back.
+    auto mineWith = [&](const char *name) {
+        for (const model::Reaction &r : e.store.findMessage(design, last.ts)->reactions)
+            if (r.name == name && e.store.reactedByMe(r))
+                return true;
+        return false;
+    };
+    static_cast<ui::Clickable *>(card->child(1))->activate();
+    pump(4);
+    CHECK(mineWith("eyes"));
+    // Used: it leads the quick reactions (and "Frequently used") now.
+    CHECK(EmojiPicker::quickReactions()[0] == "eyes");
+    CHECK(EmojiPicker::quickReactions()[1] == "white_check_mark");
+    // The buttons stay put while the toolbar is up (nothing moves under the
+    // pointer); the same one takes the reaction back.
+    CHECK_STR(card->child(1)->tooltip(), ":eyes:");
+    static_cast<ui::Clickable *>(card->child(1))->activate();
+    pump(4);
+    CHECK_FALSE(mineWith("eyes"));
     // It straddles the row's top edge, 12 px from the right.
     CHECK(near(card->windowRect().y, rr.y - 20, 1));
     CHECK(near(card->windowRect().x + card->frame().w, e.win->size().w - 12, 1));
     // Forward asks the shell for its dialog; Save toggles the bookmark.
-    static_cast<ui::Clickable *>(card->child(1))->activate();
+    static_cast<ui::Clickable *>(card->child(4))->activate();
     CHECK(fwdConv == design && fwdTs == last.ts && fwdFile.empty());
-    static_cast<ui::Clickable *>(card->child(2))->activate();
+    static_cast<ui::Clickable *>(card->child(5))->activate();
     CHECK(e.store.findMessage(design, last.ts)->saved);
-    CHECK_STR(card->child(2)->tooltip(), "Remove from saved");
-    static_cast<ui::Clickable *>(card->child(2))->activate();
+    CHECK_STR(card->child(5)->tooltip(), "Remove from saved");
+    static_cast<ui::Clickable *>(card->child(5))->activate();
     CHECK_FALSE(e.store.findMessage(design, last.ts)->saved);
     // A reminder is a saved item too: Save removes it whole.
     e.backend.setReminder(design, last.ts, base::nowSecs() + 3600);
-    static_cast<ui::Clickable *>(card->child(2))->activate();
+    static_cast<ui::Clickable *>(card->child(5))->activate();
     CHECK(e.store.reminderAt(design, last.ts) == 0 && !e.store.findMessage(design, last.ts)->saved);
     // No toolbar on a pending send.
     e.backend.send(design, "pending one", 0, nullptr);
@@ -1750,7 +1776,7 @@ TEST("actions: the robot asks an agent, active on a linked thread; its menu item
     REQUIRE(robot != nullptr);
     REQUIRE(robot->visible());
     CHECK(robot->icon() == gfx::Icon::Bot);
-    CHECK(robot->parent()->child(4) == findByTooltip(e.win->root().child(0), "More actions"));
+    CHECK(robot->parent()->child(7) == findByTooltip(e.win->root().child(0), "More actions"));
     CHECK(robot->ink() != ui::C::Accent);
     robot->activate();
     REQUIRE(actions.size() == 1);

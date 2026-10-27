@@ -477,15 +477,32 @@ bool EmojiPicker::onEvent(Event &e) {
     return Popup::onEvent(e);
 }
 
-void EmojiPicker::pick(const std::string &name) {
+void EmojiPicker::noteUsed(const std::string &name) {
     // The tone-stripped name leads "Frequently used".
     const std::string base = name.substr(0, name.find("::"));
-    auto             &r    = recents();
+    if (base.empty())
+        return;
+    auto &r = recents();
     r.erase(std::remove(r.begin(), r.end(), base), r.end());
     r.insert(r.begin(), base);
     if (r.size() > size_t(kRecentMax))
         r.resize(kRecentMax);
     stateChanged();
+}
+
+std::vector<std::string> EmojiPicker::quickReactions(size_t n) {
+    std::vector<std::string> out;
+    for (const std::string &r : recents())
+        if (out.size() < n)
+            out.push_back(r);
+    for (const char *d : {"white_check_mark", "eyes", "raised_hands"})
+        if (out.size() < n && std::find(out.begin(), out.end(), d) == out.end())
+            out.emplace_back(d);
+    return out;
+}
+
+void EmojiPicker::pick(const std::string &name) {
+    noteUsed(name);
     Pick cb = std::move(_onPick);
     close(); // deferred destruction: members stay valid for the rest of this call
     if (cb)
