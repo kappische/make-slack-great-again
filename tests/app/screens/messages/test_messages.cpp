@@ -2393,6 +2393,52 @@ struct HoldEnv {
 
 } // namespace
 
+TEST("loading: a jump to an older message pages back until it is in, at most so far") {
+    HoldEnv       e;
+    const ConvRef c      = e.conv("C1");
+    int64_t       top    = 1700000000; // the next page's newest second, paging back
+    // A page of 80 (enough that the list sits away from its top, so only the
+    // jump asks for more), older than the last.
+    auto          answer = [&](size_t i) {
+        std::vector<model::Message> page;
+        for (int k = 79; k >= 0; --k)
+            page.push_back(msg(e.mira, top - k, "m"));
+        top -= 80;
+        e.store.addPage(c, std::move(page));
+        e.store.updateConversation(c, [](model::Conversation &x) { x.hasMoreBefore = true; });
+        REQUIRE(i < e.backend.history.size());
+        auto done = std::move(e.backend.history[i]);
+        done(true, {});
+        pump(4);
+    };
+    e.list->showConversation(c);
+    REQUIRE(until([&] { return e.backend.history.size() == 1; })); // the first page
+    answer(0);
+    CHECK(e.backend.history.size() == 1);
+    // Two pages back: asked for one after the other, then it's in view.
+    const Ts target = (top - 80 - 40) * 1000000;
+    e.list->jumpTo(target);
+    REQUIRE(e.backend.history.size() == 2);
+    answer(1);
+    REQUIRE(e.backend.history.size() == 3);
+    answer(2);
+    CHECK(e.backend.history.size() == 3); // in: no more pages
+    auto shown = [&] {
+        const auto &l = e.list->list();
+        for (int i = l.firstVisible(); i >= 0 && i <= l.lastVisible(); ++i)
+            if (e.list->items()[size_t(i)].ts == target)
+                return true;
+        return false;
+    };
+    CHECK(until(shown)); // the scroll there is animated
+    // One that never comes: kJumpMaxPages more pages, then it gives up.
+    const size_t before = e.backend.history.size();
+    e.list->jumpTo(model::Ts(1000) * 1000000);
+    for (size_t i = before; i < e.backend.history.size() && i < before + 40; ++i)
+        answer(i);
+    CHECK(e.backend.history.size() == before + 1 + MessageList::kJumpMaxPages);
+}
+
 TEST("loading: the ring and its hints until the first page, then No messages yet") {
     using State = MessageList::State;
     HoldEnv       e;
@@ -3400,6 +3446,62 @@ TEST("blocks: a forwarded message's \"Posted in\" jumps to it, a reply in its th
     CHECK(jumps[0].ts == root.ts && jumps[0].thread == 0);
     click((t0 + 60) * 1000000);
     CHECK(jumps[0].ts == reply.ts && jumps[0].thread == root.ts);
+}
+
+TEST("blocks: a click anywhere on a shared message's card opens it, a drag doesn't") {
+    Env e(false);
+    struct Jump {
+        ConvRef c;
+        Ts      ts, thread;
+    };
+    std::vector<Jump> jumps;
+    e.ctx.openMessage    = [&](ConvRef c, Ts ts, Ts th) { jumps.push_back({c, ts, th}); };
+    const int64_t     t0 = base::nowSecs() - 3600;
+    model::Attachment un;
+    un.msgUnfurl     = true;
+    un.linkPreview   = true;
+    un.author        = "Mira";
+    un.channel       = "C1";
+    un.ts            = model::parseTs("1700000000.000100");
+    un.text          = "the quoted text, long enough to drag across";
+    un.link          = "https://acme.slack.com/archives/C1/p1700000000000100";
+    model::Message m = msg(1, t0, "look");
+    m.extras().attachments.push_back(un);
+    std::vector<model::Message> ms;
+    ms.push_back(std::move(m));
+    const ConvRef c = addConv(e.store, std::move(ms));
+    e.list->showConversation(c);
+    pump(8);
+    ui::View *row = e.row(t0 * 1000000);
+    REQUIRE(row != nullptr);
+    ui::View *posted = findLeaf(row, "Posted in #design");
+    REQUIRE(posted != nullptr);
+    ui::View *card = posted->parent()->parent()->parent(); // lines → header → card
+    ui::View *text = findLeaf(row, "the quoted text, long enough to drag across");
+    REQUIRE(text != nullptr);
+    auto *h     = app().platform().testHooks();
+    auto  press = [&](ui::PointF from, ui::PointF to) {
+        h->injectPointerMove(e.win->native(), {from.x, from.y});
+        pump(1);
+        h->injectButton(e.win->native(), plat::Button::Left, true);
+        pump(1);
+        h->injectPointerMove(e.win->native(), {to.x, to.y});
+        pump(1);
+        h->injectButton(e.win->native(), plat::Button::Left, false);
+        pump(2);
+    };
+    // The card's padding (no text there): it opens.
+    const ui::RectF cr = card->windowRect();
+    press({cr.x + 4, cr.y + 4}, {cr.x + 4, cr.y + 4});
+    REQUIRE(jumps.size() == 1);
+    CHECK(jumps[0].c == c && jumps[0].ts == un.ts && jumps[0].thread == 0);
+    // A plain click on the quoted text opens it too.
+    const ui::RectF tr = text->windowRect();
+    press({tr.x + 6, tr.y + tr.h / 2}, {tr.x + 6, tr.y + tr.h / 2});
+    CHECK(jumps.size() == 2);
+    // A drag across it is not a click.
+    press({tr.x + 6, tr.y + tr.h / 2}, {tr.x + 120, tr.y + tr.h / 2});
+    CHECK(jumps.size() == 2);
 }
 
 TEST("blocks: a forwarded canvas's card re-binds once its preview is in") {

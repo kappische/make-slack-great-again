@@ -522,16 +522,42 @@ private:
 class AttachCard final : public ui::View {
 public:
     AttachCard(MessageRow *row, int index) : _row(row), _index(index) {}
+    // A shared message's card: a click on it opens the message. On its text
+    // the list's selection takes the press (a drag still selects) and opens
+    // it on a plain click itself (MessageList::onEvent).
+    bool opens = false;
     bool onEvent(ui::Event &e) override {
         if (_row && _index >= 0 &&
             (e.type == ui::EventType::PointerEnter || e.type == ui::EventType::PointerLeave))
             _row->attachHovered(_index, this, e.type == ui::EventType::PointerEnter);
-        return false;
+        if (!opens || !_row)
+            return false;
+        switch (e.type) {
+        case ui::EventType::PointerDown:
+            _pressed = e.button == plat::Button::Left && !_row->overText(e.windowPos);
+            _pressAt = e.windowPos;
+            return _pressed;
+        case ui::EventType::PointerUp: {
+            // A click, not a drag that ended here (more than a few pixels).
+            const float dx = e.windowPos.x - _pressAt.x, dy = e.windowPos.y - _pressAt.y;
+            if (std::exchange(_pressed, false) && dx * dx + dy * dy <= 16 &&
+                windowRect().contains(e.windowPos))
+                _row->openQuoteAt(e.windowPos);
+            return true;
+        }
+        case ui::EventType::PointerCancel:
+            _pressed = false;
+            return false;
+        default:
+            return false;
+        }
     }
 
 private:
     MessageRow *_row;
     int         _index;
+    bool        _pressed = false;
+    ui::PointF  _pressAt;
 };
 
 // An attachment that
@@ -1090,6 +1116,7 @@ void MessageRow::bind(const MessageList::Item &item) {
     } else {
         clearChildren();
         _sel.clear();
+        _quotes.clear();
         _col = nullptr;
         _bodyExtras.reset();
     }
@@ -1622,6 +1649,28 @@ void MessageRow::buildAttachment(ui::View *col, const model::Message &m, size_t 
     buildButtons(c, m, int32_t(index + 1));
 }
 
+void MessageRow::openQuote(const Quote &q) {
+    Context             &ctx = _list.ctx();
+    const model::ConvRef c   = ctx.store().findConversation(q.channel);
+    if (c != model::kNoConv && q.ts && ctx.openMessage)
+        ctx.openMessage(c, q.ts, q.thread);
+    else if (c == model::kNoConv && !q.link.empty() && ctx.openUrl)
+        ctx.openUrl(q.link); // a conversation this workspace can't see: Slack's page for it
+}
+
+bool MessageRow::openQuoteAt(ui::PointF windowPos) {
+    for (const Quote &q : _quotes)
+        if (q.card->windowRect().contains(windowPos)) {
+            openQuote(q);
+            return true;
+        }
+    return false;
+}
+
+bool MessageRow::overText(ui::PointF windowPos) const {
+    return _list.textPosAt(windowPos).ts != 0;
+}
+
 void MessageRow::buildUnfurl(ui::View *col, const model::Message &m, size_t index) {
     // The shared-message card: the
     // quoted author's avatar, name, APP tag and time, "Posted in #channel",
@@ -1633,6 +1682,14 @@ void MessageRow::buildUnfurl(ui::View *col, const model::Message &m, size_t inde
     card->style().margins(0, 4, 0, 2).padding(10).spacing(0);
     card->setBackground(C::FileChipBg, 8);
     card->setBorder(C::FileChipBorder);
+    // A thread reply opens in its thread (Slack's from_url has its thread_ts).
+    const mrkdwn::MessageRef ref    = mrkdwn::parseMessageLink(a.link);
+    const Ts                 thread = ref.conv == a.channel ? model::parseTs(ref.threadTs) : 0;
+    if (a.ts && (!a.channel.empty() || !a.link.empty())) {
+        card->opens = true;
+        card->setCursor(plat::Cursor::Hand);
+        _quotes.push_back({card, a.channel, a.link, a.ts, thread});
+    }
     auto *hdr = card->add<ui::View>();
     hdr->style().row().spacing(kAvGap).items(Align::Start);
     const std::string name =
@@ -1655,10 +1712,6 @@ void MessageRow::buildUnfurl(ui::View *col, const model::Message &m, size_t inde
             ->style()
             .margins(8, 0, 0, 0);
     if (const std::string place = placeLabel(ctx.store, a.channel); !place.empty()) {
-        // A thread reply opens in its thread (Slack's from_url has its thread_ts).
-        const mrkdwn::MessageRef ref    = mrkdwn::parseMessageLink(a.link);
-        const Ts                 thread = ref.conv == a.channel ? model::parseTs(ref.threadTs) : 0;
-
         // Jumps to the quoted message, same as a permalink link (rich.cpp).
         // Muted, underlines on hover like Slack's own client --
         // Kind::Link targets already get that for free (RichLabel::hoverLink).
@@ -1668,10 +1721,8 @@ void MessageRow::buildUnfurl(ui::View *col, const model::Message &m, size_t inde
             {{mrkdwn::Kind::Link, {}}},
             {}
         );
-        posted->onLink = [this, channel = a.channel, ts = a.ts, thread](uint32_t) {
-            const model::ConvRef c = _list.ctx().store().findConversation(channel);
-            if (c != model::kNoConv && _list.ctx().openMessage)
-                _list.ctx().openMessage(c, ts, thread);
+        posted->onLink = [this, q = Quote{card, a.channel, a.link, a.ts, thread}](uint32_t) {
+            openQuote(q);
         };
         posted->setMaxLines(1);
     }

@@ -70,6 +70,12 @@ public:
     // An attachment card under the pointer (index), for the "×" in the
     // gutter beside it (the dismiss button on link previews).
     void                                 attachHovered(int index, ui::View *card, bool on);
+    // A shared message's card under the window point: opens that message
+    // (as Slack does on a click anywhere on it); false when none is there.
+    bool                                 openQuoteAt(ui::PointF windowPos);
+    // Message text under the window point (the list's selection takes the
+    // press there).
+    bool                                 overText(ui::PointF windowPos) const;
 
     void        paint(gfx::Painter &p) override;
     void        paintOver(gfx::Painter &p) override;
@@ -162,8 +168,16 @@ private:
     ui::View                             *_col    = nullptr;
     size_t                                _tailAt = 0;
     std::unique_ptr<model::MessageExtras> _bodyExtras;
-    uint64_t                              _bodyHash  = 0;
-    uint32_t                              _bodyEpoch = 0;
+    // The body's shared-message cards and where each points (buildUnfurl).
+    struct Quote {
+        ui::View   *card = nullptr;
+        std::string channel, link; // link: its permalink (another workspace's opens in the browser)
+        Ts          ts = 0, thread = 0;
+    };
+    std::vector<Quote> _quotes;
+    void               openQuote(const Quote &q);
+    uint64_t           _bodyHash  = 0;
+    uint32_t           _bodyEpoch = 0;
 
     friend class MessageList; // links every row of the list (MessageList::_rows)
     MessageRow *_prevRow = nullptr, *_nextRow = nullptr;
