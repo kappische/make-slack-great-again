@@ -533,8 +533,8 @@ MessageList::MessageList(Context &ctx)
     };
     _typing = add<ui::Label>("", Font::Small, C::TextMuted);
     _typing->setMaxLines(1);
-    // The hover toolbar: Add reaction, Forward message, Save for later, Ask
-    // agent (agent thread links), More actions.
+    // The hover toolbar: Add reaction, Reply in thread, Forward message,
+    // Save for later, Ask agent (agent thread links), More actions.
     _toolbar          = add<ToolbarCard>();
     _tbEmoji          = _toolbar->add<ActionButton>(gfx::Icon::Smile, tr("Add reaction"));
     _tbEmoji->onClick = [this] {
@@ -542,6 +542,11 @@ MessageList::MessageList(Context &ctx)
             const ui::RectF r = _tbEmoji->windowRect();
             openReactionPicker(_toolbarRow->ts(), {r.x, r.y + r.h, 0, 0});
         }
+    };
+    _tbReply = _toolbar->add<ActionButton>(gfx::Icon::MessageSquareReply, tr("Reply in thread"));
+    _tbReply->onClick = [this] {
+        if (_toolbarRow)
+            reply(_toolbarRow->ts());
     };
     _tbForward          = _toolbar->add<ActionButton>(gfx::Icon::Forward, tr("Forward message"));
     _tbForward->onClick = [this] {
@@ -1319,6 +1324,12 @@ void MessageList::placeToolbar() {
     // Emoji: caps.reactions, except on my own messages in an agent session;
     // Save: caps.messageReminders (not agent sessions).
     _tbEmoji->setVisible(!(agent && m->user == _ctx.store().me));
+    // Reply in thread: where the menu offers it (a top-level message in the
+    // channel; in an agent session, a thread that takes replies).
+    _tbReply->setVisible(
+        _root == 0 && !m->isReply() &&
+        (!agent || (m->replyCount > 0 && _ctx.backend.threadAcceptsReplies(_conv, m->ts)))
+    );
     _tbSave->setVisible(!agent && _ctx.backend.capabilities().messageReminders);
     const bool saved = m->saved || _ctx.store().reminderAt(_conv, m->ts) != 0;
     _tbSave->setIcon(saved ? gfx::Icon::BookmarkFilled : gfx::Icon::Bookmark);
