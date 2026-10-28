@@ -271,6 +271,42 @@ TEST("slack realtime: a reply to a thread I started is followed, its root unload
     CHECK(!e.be->threadFollowed(c, model::parseTs("1800000000.000060")));
 }
 
+TEST("slack realtime: pin_added / pin_removed mark the message and keep the Pins list") {
+    if (!haveServer())
+        return;
+    Env e;
+    REQUIRE(e.connect());
+    REQUIRE(e.live());
+    const ConvRef c  = e.conv("C1");
+    const Ts      ts = model::parseTs("1800000000.000200");
+    REQUIRE(push(envelope(
+        "a",
+        R"({"type":"message","channel":"C1","user":"UMIRA","text":"pin me","ts":"1800000000.000200"})"
+    )));
+    REQUIRE(pumpUntil([&] { return e.store.findMessage(c, ts); }));
+    bool loaded = false;
+    e.be->loadPins(c, [&](bool, const std::string &) { loaded = true; });
+    REQUIRE(pumpUntil([&] { return loaded; }));
+    REQUIRE(e.store.pins(c) != nullptr);
+    CHECK(e.store.pins(c)->empty());
+    REQUIRE(push(envelope(
+        "b",
+        R"({"type":"pin_added","user":"UMIRA","channel_id":"C1","item":{"type":"message","channel":"C1",)"
+        R"("message":{"type":"message","user":"UMIRA","text":"pin me","ts":"1800000000.000200"}}})"
+    )));
+    REQUIRE(pumpUntil([&] { return e.store.findMessage(c, ts)->pinned; }));
+    CHECK(e.store.findMessage(c, ts)->pinnedBy == e.store.findUser("UMIRA"));
+    REQUIRE(e.store.pins(c)->size() == 1);
+    CHECK_STR(e.store.pins(c)->front().text, "pin me");
+    REQUIRE(push(envelope(
+        "c",
+        R"({"type":"pin_removed","user":"UMIRA","channel_id":"C1","item":{"type":"message","channel":"C1",)"
+        R"("message":{"type":"message","user":"UMIRA","text":"pin me","ts":"1800000000.000200"}}})"
+    )));
+    REQUIRE(pumpUntil([&] { return !e.store.findMessage(c, ts)->pinned; }));
+    CHECK(e.store.pins(c)->empty());
+}
+
 TEST("slack realtime: edits, deletions, reactions, presence, users and marks") {
     if (!haveServer())
         return;

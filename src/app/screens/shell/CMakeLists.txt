@@ -16,6 +16,7 @@ add_library(msga_screens_shell STATIC
     nav_chrome.cpp
     nav_history.cpp
     desktop_entry.cpp
+    pins.cpp
     profile_card.cpp
     recent_folders.cpp
     session_dialogs.cpp

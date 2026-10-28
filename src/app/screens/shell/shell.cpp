@@ -18,6 +18,7 @@
 #include "screens/shell/canvas_page.h"
 #include "screens/shell/canvas_viewer.h"
 #include "screens/shell/channel_dialogs.h"
+#include "screens/shell/pins.h"
 #include "screens/shell/context_menus.h"
 #include "screens/shell/header.h"
 #include "screens/shell/huddle_banner.h"
@@ -834,9 +835,11 @@ Shell::Shell(screens::Context &ctx, Window &win, Settings &settings, std::string
 
     // Context menus (context_menus.h). One workspace for now: nothing to
     // reorder, and signing out needs sign-in (Menus::hooks stay unset).
-    _menus           = std::make_unique<Menus>(*this, ctx, win);
-    _profiles        = std::make_unique<ProfileCards>(ctx, win, _avatars);
-    ctx.profileHover = [this](model::UserRef u, RectF r, int mode) {
+    _menus             = std::make_unique<Menus>(*this, ctx, win);
+    _profiles          = std::make_unique<ProfileCards>(ctx, win, _avatars);
+    _pinsHover         = std::make_unique<PinsHover>(ctx, win, _avatars);
+    _pinsHover->onOpen = [this](ConvRef c, Ts ts, Ts thread) { openPin(c, ts, thread); };
+    ctx.profileHover   = [this](model::UserRef u, RectF r, int mode) {
         _profiles->hover(u, r, mode);
     };
     _sidebar->setMenus(_menus.get());
@@ -1322,9 +1325,20 @@ void Shell::buildMain(View *parent) {
 #else
     _header = _mainPane->add<ConvHeader>(_ctx, _avatars);
 #endif
-    _header->onSearch     = [this] { openSearch(); };
-    _tabs                 = _mainPane->add<ConvTabs>();
-    _tabs->onSelect       = [this](int tab) { showCanvas(tab == 1); };
+    _header->onSearch = [this] { openSearch(); };
+    _tabs             = _mainPane->add<ConvTabs>();
+    _tabs->onSelect   = [this](int tab) {
+        _pinsHover->hideNow();
+        if (tab == 2)
+            showPins();
+        else
+            showCanvas(tab == 1);
+    };
+    _tabs->onPinsHover = [this](bool on, RectF anchor) {
+        // Over the Pins page already, it adds nothing.
+        if (_current != kNoConv && _tabs->active() != 2)
+            _pinsHover->hoverTab(on, _current, anchor);
+    };
     // The huddle banner: under the tabs, over the messages.
     _huddleBanner         = _mainPane->add<HuddleBanner>();
     _huddleBanner->onJoin = [this] {
@@ -1393,6 +1407,9 @@ void Shell::buildMain(View *parent) {
     _messages->setVisible(false);
     _canvas = stack->add<CanvasPage>(_ctx);
     _canvas->setVisible(false);
+    _pins = stack->add<PinsPage>(_ctx, _avatars);
+    _pins->setVisible(false);
+    _pins->onOpen           = [this](ConvRef c, Ts ts, Ts thread) { openPin(c, ts, thread); };
     _canvas->onError        = [this](const std::string &message) { showError(message); };
     _canvas->onTitleChanged = [this](const std::string &title) {
         if (_current != kNoConv)
@@ -1470,6 +1487,7 @@ void Shell::setWaiting(bool on) {
         _composer->setVisible(false);
         _typing->setVisible(false);
         _canvas->setVisible(false);
+        _pins->setVisible(false);
         _welcome->setVisible(false);
         _messages->setVisible(true);
     } else if (_current == kNoConv) {
@@ -1658,6 +1676,8 @@ void Shell::open(ConvRef conv) {
         c.kind == model::ConvKind::Dm && c.dmUser != model::kNoUser)
         _ctx.backend.requestPresence(c.dmUser);
     lookUpCanvas(conv);
+    if (_ctx.backend.capabilities().pins)
+        _ctx.backend.loadPins(conv, nullptr); // the Pins tab shows once there are some
     _ctx.backend.setActiveConversation(conv, 0);
 #ifdef MSGA_HAVE_MESSAGES
     // The list loads history and marks read once the newest message shows.
@@ -1967,6 +1987,8 @@ void Shell::leaveConversationChrome(bool keepComposer) {
     _welcome->setVisible(false);
     _canvas->flushPendingSave();
     _canvas->setVisible(false);
+    _pins->setVisible(false);
+    _pinsHover->hideNow();
     _typing->setTarget(kNoConv, 0);
     _typing->setVisible(false);
     _ctx.backend.setActiveConversation(kNoConv, 0);
@@ -2054,12 +2076,36 @@ void Shell::showCanvas(bool on) {
     if (!on)
         _canvas->flushPendingSave(); // on every tab / conversation switch
     _canvas->setVisible(on);
+    _pins->setVisible(false);
     _messages->setVisible(!on && _current != kNoConv);
     _composer->setVisible(!on);
     _typing->setVisible(!on && !_typing->text().empty());
     _tabs->setActive(on ? 1 : 0);
     if (on)
         _canvas->open(_current);
+}
+
+// The Pins tab: the conversation's pinned messages in the message area,
+// asked for again each time.
+void Shell::showPins() {
+    if (_current == kNoConv)
+        return;
+    showCanvas(false); // a canvas edit saved, the Messages parts in place
+    _messages->setVisible(false);
+    _composer->setVisible(false);
+    _typing->setVisible(false);
+    _pins->setVisible(true);
+    _tabs->setActive(2);
+    _pins->open(_current);
+}
+
+// A pinned message, from the Pins page or the dropdown: back on Messages,
+// at the message (in its thread, for a reply).
+void Shell::openPin(ConvRef c, Ts ts, Ts thread) {
+    _pinsHover->hideNow();
+    if (c == _current)
+        showCanvas(false);
+    jumpToMessage(c, ts, thread);
 }
 
 // While the open conversation (its header on
@@ -2085,6 +2131,12 @@ void Shell::updateHeader() {
         _ctx.backend.capabilities().canvases && !app,
         !c.canvasId.empty() || !c.canvasTitle.empty(),
         c.canvasTitle
+    );
+    // As in Slack, only while there are pins (or the page is showing: the
+    // last one unpinned there leaves "No pinned messages").
+    const auto *pins = _ctx.store().pins(_current);
+    _tabs->setPins(
+        _ctx.backend.capabilities().pins && ((pins && !pins->empty()) || _tabs->active() == 2)
     );
 }
 

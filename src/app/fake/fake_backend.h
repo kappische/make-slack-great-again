@@ -61,6 +61,7 @@ public:
     // A new, empty channel with me as its only member.
     void createChannel(std::string name, bool isPrivate, ConvDone done) override;
     void setPinned(model::ConvRef conv, model::Ts ts, bool pinned) override;
+    void loadPins(model::ConvRef conv, Done done) override;
     void setSaved(model::ConvRef conv, model::Ts ts, bool saved) override;
     void setReminder(model::ConvRef conv, model::Ts ts, int64_t dueSecs) override;
     void deleteFile(model::ConvRef conv, model::Ts ts, const std::string &fileId) override;

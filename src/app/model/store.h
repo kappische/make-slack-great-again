@@ -309,6 +309,16 @@ public:
     // Drops one (cancelled or sent from here); fires Meta like setScheduled.
     void                              removeScheduled(const std::string &id);
 
+    // ── Pinned messages ─────────────────────────────────────────────────────
+    // A conversation's pinned messages (the header's Pins tab), the latest
+    // pinned first; null until loaded (Backend::loadPins). Not cached: each
+    // opening looks again. A change fires Meta for the conversation.
+    const std::vector<Message> *pins(ConvRef c) const;
+    void                        setPins(ConvRef c, std::vector<Message> pins);
+    // One pinned or unpinned (here or elsewhere): a loaded list follows, a
+    // new pin at the top.
+    void                        pinChanged(ConvRef c, const Message &m, bool pinned);
+
     // ── "Transcribe with AI" ────────────────────────────────────────────────
     // AI transcripts of audio files (app-local: Slack has no write API
     // for a file's transcript). Setting one fires Update for every loaded
@@ -392,12 +402,13 @@ private:
     std::vector<Draft>                           _drafts;                   // few: linear is fine
     std::vector<SavedItem>                       _saved;
     std::vector<ScheduledItem>                   _scheduled;
-    std::vector<Usergroup>                       _usergroups;
-    std::unordered_map<std::string, std::string> _channelNames;
-    std::unordered_map<std::string, UserRef>     _linkedAuthors; // "conv/ts"
-    const Message                               *_arrived       = nullptr;
-    int                                          _unreadThreads = 0;
-    bool                                         _realNames     = true;
+    std::unordered_map<ConvRef, std::vector<Message>> _pins;
+    std::vector<Usergroup>                            _usergroups;
+    std::unordered_map<std::string, std::string>      _channelNames;
+    std::unordered_map<std::string, UserRef>          _linkedAuthors; // "conv/ts"
+    const Message                                    *_arrived       = nullptr;
+    int                                               _unreadThreads = 0;
+    bool                                              _realNames     = true;
 
     std::unordered_map<std::string, AiTranscript> _aiTranscripts;
 

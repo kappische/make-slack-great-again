@@ -147,6 +147,7 @@ public:
     void search(std::string query, std::function<void(std::vector<SearchHit>)> done) override;
     void markThreadRead(model::ConvRef conv, model::Ts root, model::Ts ts) override;
     void loadChannelCanvas(model::ConvRef conv, std::function<void(std::string)> done) override;
+    void loadPins(model::ConvRef conv, Done done) override;
     void loadCanvasMeta(const std::string &fileId, CanvasMetaDone done) override;
     void loadCanvasContent(const std::string &fileId, CanvasHtmlDone done) override;
     void

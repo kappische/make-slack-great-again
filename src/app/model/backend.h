@@ -351,6 +351,7 @@ public:
         bool fileUpload       = false; // Forward re-uploads a message's files (else: links)
         bool removePreview    = false; // deleteAttachment: a link preview's "Remove preview"
         bool sidebarTheme     = false; // loadSidebarTheme: Settings' "Use my Slack theme"
+        bool pins             = false; // the header's Pins tab (loadPins)
     };
     virtual Capabilities capabilities() const { return {}; }
 
@@ -518,6 +519,13 @@ public:
         Gone,     // deleted, though the conversation still names it
         NoAccess, // there, but this account may not view it
     };
+    // The conversation's pinned messages (Capabilities::pins) into
+    // Store::setPins; done says whether that worked. Default: fails.
+    virtual void loadPins(ConvRef conv, Done done) {
+        (void)conv;
+        if (done)
+            done(false, "not supported");
+    }
     // Looks the conversation's canvas up (conversations.info); done(fileId),
     // "" = none.
     virtual void loadChannelCanvas(ConvRef conv, std::function<void(std::string fileId)> done) {
