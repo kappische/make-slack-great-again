@@ -23,6 +23,8 @@ SlackBackend::SlackBackend(
 
 SlackBackend::~SlackBackend() {
     *_alive = false;
+    if (_dndTimer)
+        _app.cancelTimer(_dndTimer);
     _transfers.reset(); // no transfer callback runs past here
     for (auto &d : _downloads)
         if (Done fn = std::exchange(*d, nullptr))

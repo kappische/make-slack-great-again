@@ -3355,6 +3355,46 @@ msgid " — sign in to this workspace again to grant the new permission"
 msgstr " — 新しい権限を付与するには、このワークスペースに再度サインインしてください"
 
 #: src/app/screens/shell/sidebar_footer.cpp
+msgid "tomorrow at %1"
+msgstr "明日 %1"
+
+#: src/app/screens/shell/sidebar_footer.cpp
+msgid "Pause notifications"
+msgstr "通知を一時停止"
+
+#: src/app/screens/shell/sidebar_footer.cpp
+msgid "Paused until %1"
+msgstr "%1 まで一時停止中"
+
+#: src/app/screens/shell/sidebar_footer.cpp
+msgid "Resume notifications"
+msgstr "通知を再開"
+
+#: src/app/screens/shell/sidebar_footer.cpp
+msgid "For 30 minutes"
+msgstr "30 分間"
+
+#: src/app/screens/shell/sidebar_footer.cpp
+msgid "For 1 hour"
+msgstr "1 時間"
+
+#: src/app/screens/shell/sidebar_footer.cpp
+msgid "For 2 hours"
+msgstr "2 時間"
+
+#: src/app/screens/shell/sidebar_footer.cpp
+msgid "Until tomorrow"
+msgstr "明日まで"
+
+#: src/app/screens/shell/sidebar_footer.cpp
+msgid "Until next week"
+msgstr "来週まで"
+
+#: src/app/screens/shell/sidebar_footer.cpp src/app/slack/slack_actions.cpp
+msgid "Could not update notifications: %1"
+msgstr "通知設定を更新できませんでした: %1"
+
+#: src/app/screens/shell/sidebar_footer.cpp
 msgid "Manage profile"
 msgstr "プロフィールを管理"
 
@@ -3887,10 +3927,6 @@ msgstr "ユーザーが見つかりません: %1"
 #: src/app/slack/slack_actions.cpp
 msgid "Usage: /dnd [duration, e.g. 30m or 2h] — or /dnd off to resume"
 msgstr "使い方: /dnd [時間。例: 30m、2h] — 解除は /dnd off"
-
-#: src/app/slack/slack_actions.cpp
-msgid "Could not update notifications: %1"
-msgstr "通知設定を更新できませんでした: %1"
 
 #: src/app/slack/slack_actions.cpp
 msgid "Command /%1 failed: %2"

@@ -88,8 +88,19 @@ public:
         if (done)
             done(false, "not supported");
     }
+    // "Pause notifications" (Slack's do not disturb) for `minutes`; 0 resumes
+    // them (a snooze or the account's schedule). Default: fails.
+    virtual void pauseNotifications(int minutes, Done done) {
+        (void)minutes;
+        if (done)
+            done(false, "not supported");
+    }
+    // Until when notifications are paused (epoch secs: a snooze's end, or
+    // the schedule's while it is on); 0 = they aren't. The footer and the
+    // desktop notifications follow it; a change fires Users for me.
+    virtual int64_t notificationsPausedUntil() const { return 0; }
     // "Remind me": a saved item with a due time (epoch secs); 0 removes it.
-    virtual void setReminder(ConvRef conv, Ts ts, int64_t dueSecs);
+    virtual void    setReminder(ConvRef conv, Ts ts, int64_t dueSecs);
 
     // "Find a channel" / "Create a channel": joins a listed channel, or
     // creates one (name already lower-cased and dashed). done(conv, "") once
@@ -335,22 +346,23 @@ public:
     // What the service can do: the UI shows a control only where it works
     // (the fields the shell gates on).
     struct Capabilities {
-        bool huddles          = false; // header huddle button, sidebar huddle pills
-        bool replyBroadcast   = false; // "Also send to channel" under the thread composer
-        bool scheduledSend    = false; // the composer's schedule-send chevron
-        bool memberList       = false; // the header's members button opens the list
-        bool threadsView      = false; // the sidebar's "Threads" entry
-        bool messageReminders = false; // "Saved messages" (while something is saved)
-        bool presence         = true;  // presence dots, the footer's presence toggle
-        bool selfStatus       = true;  // "Manage status" in the footer's avatar menu
-        bool agentSessions    = false; // DMs are Claude Code sessions ("Sessions")
-        bool profileContact   = true;  // "Manage profile" has email and phone
-        bool zenMode          = false; // the footer's zen toggle (hides tool cards)
-        bool slashCommands    = false; // the composer's "/" list (commands())
-        bool canvases         = false; // the header's canvas tab (the canvas calls)
-        bool fileUpload       = false; // Forward re-uploads a message's files (else: links)
-        bool removePreview    = false; // deleteAttachment: a link preview's "Remove preview"
-        bool sidebarTheme     = false; // loadSidebarTheme: Settings' "Use my Slack theme"
+        bool huddles            = false; // header huddle button, sidebar huddle pills
+        bool replyBroadcast     = false; // "Also send to channel" under the thread composer
+        bool scheduledSend      = false; // the composer's schedule-send chevron
+        bool memberList         = false; // the header's members button opens the list
+        bool threadsView        = false; // the sidebar's "Threads" entry
+        bool messageReminders   = false; // "Saved messages" (while something is saved)
+        bool presence           = true;  // presence dots, the footer's presence toggle
+        bool selfStatus         = true;  // "Manage status" in the footer's avatar menu
+        bool agentSessions      = false; // DMs are Claude Code sessions ("Sessions")
+        bool profileContact     = true;  // "Manage profile" has email and phone
+        bool zenMode            = false; // the footer's zen toggle (hides tool cards)
+        bool slashCommands      = false; // the composer's "/" list (commands())
+        bool canvases           = false; // the header's canvas tab (the canvas calls)
+        bool fileUpload         = false; // Forward re-uploads a message's files (else: links)
+        bool removePreview      = false; // deleteAttachment: a link preview's "Remove preview"
+        bool sidebarTheme       = false; // loadSidebarTheme: Settings' "Use my Slack theme"
+        bool pauseNotifications = false; // the avatar menu's "Pause notifications"
     };
     virtual Capabilities capabilities() const { return {}; }
 

@@ -73,6 +73,12 @@ void BackendProxy::deleteAttachment(ConvRef c, Ts ts, int attachmentId, Done d) 
 void BackendProxy::downloadFile(const std::string &url, std::string toPath, Done done) {
     _t->downloadFile(url, std::move(toPath), std::move(done));
 }
+void BackendProxy::pauseNotifications(int minutes, Done done) {
+    _t->pauseNotifications(minutes, std::move(done));
+}
+int64_t BackendProxy::notificationsPausedUntil() const {
+    return _t->notificationsPausedUntil();
+}
 void BackendProxy::setReminder(ConvRef c, Ts ts, int64_t due) {
     _t->setReminder(c, ts, due);
 }

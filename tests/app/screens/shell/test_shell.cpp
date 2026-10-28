@@ -3054,6 +3054,45 @@ TEST("notifications: the titles and gates — level, mutes, replies to unloaded 
     (void)dm;
 }
 
+TEST("notifications: paused ones say nothing; the avatar menu pauses and resumes them") {
+    TwoWorkspaces w;
+    Store        &a     = w.a;
+    uint64_t      last  = lastNotification(nullptr);
+    auto          fresh = [&] {
+        const uint64_t id = lastNotification(nullptr);
+        const bool     is = id > last;
+        last              = std::max(last, id);
+        return is;
+    };
+    w.post(a, "D0MIRA", "before");
+    pump();
+    REQUIRE(fresh());
+    // The avatar menu: "Pause notifications" with its presets.
+    shell::SidebarFooter &f = w.sh->sidebar().footer();
+    ui::MenuItem          m = f.pauseMenu();
+    CHECK_STR(m.label, "Pause notifications");
+    REQUIRE(m.sub.size() == 5);
+    CHECK_STR(m.sub[1].label, "For 1 hour");
+    f.pauseNotifications(m.sub[1].id);
+    REQUIRE(until([&] { return w.fa.notificationsPausedUntil() > 0; }));
+    pump();
+    CHECK(a.user(a.me).dnd);
+    w.post(a, "D0MIRA", "while paused");
+    pump();
+    CHECK_FALSE(fresh()); // quiet
+    // Paused: until when, and "Resume notifications" first.
+    m = f.pauseMenu();
+    REQUIRE(m.sub.size() == 8);
+    CHECK(m.sub[0].header);
+    CHECK(m.sub[0].label.find("Paused until ") == 0);
+    CHECK_STR(m.sub[1].label, "Resume notifications");
+    f.pauseNotifications(m.sub[1].id);
+    REQUIRE(until([&] { return w.fa.notificationsPausedUntil() == 0; }));
+    w.post(a, "D0MIRA", "after");
+    pump();
+    CHECK(fresh());
+}
+
 TEST("notifications: a sender's picture not decoded yet is waited for, not skipped") {
     TwoWorkspaces w;
     Store        &a = w.a;

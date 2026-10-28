@@ -11,7 +11,8 @@ it. Nothing here ever reaches the real Slack.
                             queue if one is queued, else by a default handler
                             (chat.postMessage keeps a per-channel history that
                             conversations.history / .replies serve, with a
-                            post's metadata under include_all_metadata=true)
+                            post's metadata under include_all_metadata=true;
+                            dnd.setSnooze keeps the snooze dnd.info reports)
     POST /upload/<file_id>  the pre-signed upload URL files.getUploadURLExternal
                             hands out
     POST /_ctl/script       {"method": m, "responses": [answer, ...]} queues
@@ -86,7 +87,7 @@ ws_no = [0]
 def reset():
     state.clear()
     state.update(log=[], scripts={}, table={}, history={}, last_ts=0.0, file_no=0,
-                 ws_extra=0, rtm_nopong=False)
+                 ws_extra=0, rtm_nopong=False, dnd_snooze=0)
     for h in list(sockets.values()):
         h.ws_close(1001)
     sockets.clear()
@@ -171,7 +172,30 @@ def members(form):
     return {'ok': True, 'members': ['U1', 'U2'], 'response_metadata': {'next_cursor': 'page2'}}
 
 
+def dnd_info():
+    # A snooze set here (dnd.setSnooze) is what dnd.info reports until it
+    # ends, so the client's re-read after a change agrees with it.
+    end = state.get('dnd_snooze', 0)
+    on = end > time.time()
+    return dict({'ok': True, 'dnd_enabled': False, 'snooze_enabled': on},
+                **({'snooze_endtime': end} if on else {}))
+
+
+def dnd_set_snooze(form):
+    state['dnd_snooze'] = int(time.time()) + int(form.get('num_minutes', '0') or 0) * 60
+    return {'ok': True, 'snooze_enabled': True, 'snooze_endtime': state['dnd_snooze']}
+
+
+def dnd_end(form):
+    state['dnd_snooze'] = 0
+    return {'ok': True, 'snooze_enabled': False}
+
+
 DEFAULTS = {
+    'dnd.info': lambda h, f: dnd_info(),
+    'dnd.setSnooze': lambda h, f: dnd_set_snooze(f),
+    'dnd.endSnooze': lambda h, f: dnd_end(f),
+    'dnd.endDnd': lambda h, f: dnd_end(f),
     'chat.postMessage': lambda h, f: post_message(f),
     'conversations.history': lambda h, f: history(f, False),
     'conversations.replies': lambda h, f: history(f, True),

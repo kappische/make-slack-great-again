@@ -162,7 +162,18 @@ public:
         model::ConvRef conv, model::Ts thread, const std::string &name, const std::string &args
     ) override;
     // /dnd: dnd.setSnooze for `minutes`, dnd.endSnooze for 0.
-    void setDndSnooze(int minutes, Done done);
+    void    setDndSnooze(int minutes, Done done);
+    void    pauseNotifications(int minutes, Done done) override;
+    // Against the wall clock: the timer below runs on a monotonic clock that
+    // stops while the machine sleeps, so a snooze that ended then is over.
+    int64_t notificationsPausedUntil() const override {
+        return _pausedUntil > nowSecs() ? _pausedUntil : 0;
+    }
+    // My do-not-disturb from dnd.info (at connect, after a change, at its
+    // next turn) or a dnd_updated event's dnd_status: me.dnd and
+    // _pausedUntil, and a timer for when it next changes by itself.
+    void loadDnd();
+    void applyDnd(const json::Value &status);
     void
     pressButton(model::ConvRef conv, model::Ts ts, const std::string &buttonId, Done done) override;
     void loadSidebarTheme(std::function<void(SidebarTheme, std::string)> done) override;
@@ -355,9 +366,15 @@ private:
     std::vector<std::shared_ptr<Done>> _downloads; // downloadFile's, until answered
     bool                               _authLost = false;
     std::shared_ptr<bool>              _alive;
-    Read                              *_read  = nullptr;
-    Write                             *_write = nullptr;
-    Live                              *_live  = nullptr;
+    int64_t                            _pausedUntil   = 0;     // notificationsPausedUntil
+    bool                               _dndSnoozed    = false; // a snooze is on
+    bool                               _dndInSchedule = false; // inside the schedule's stretch
+    uint32_t _dndGen       = 0; // bumped per dnd.info and dnd_updated: older answers are dropped
+    int      _dndRetrySecs = 0; // a failed dnd.info's next try
+    uint64_t _dndTimer     = 0; // a plat::TimerId
+    Read    *_read         = nullptr;
+    Write   *_write        = nullptr;
+    Live    *_live         = nullptr;
 
     friend struct Read;
     friend struct Write;
