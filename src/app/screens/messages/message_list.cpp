@@ -1273,24 +1273,46 @@ void MessageList::checkEdges() {
         }
     }
     const int first = _list->firstVisible();
-    if (c.hasMoreBefore && !_loadingOlder && (c.messages.empty() || (first >= 0 && first <= 3))) {
-        _loadingOlder              = true;
-        const Ts            before = c.messages.empty() ? 0 : c.messages.front().ts;
-        const ConvRef       conv   = _conv;
-        std::weak_ptr<char> alive  = _alive;
-        _ctx.backend.loadHistory(conv, before, [this, alive, conv](bool, const std::string &) {
-            if (alive.expired())
-                return;
-            _loadingOlder = false;
-            if (conv == _conv) {
-                // The page is in: a jump target it didn't bring won't come.
-                if (!applyJump())
-                    _jumpTs = 0;
-                updateState(); // an empty first page changes no messages
-                scheduleEdgeCheck();
+    if (c.hasMoreBefore && (c.messages.empty() || (first >= 0 && first <= 3)))
+        loadOlder();
+}
+
+void MessageList::loadOlder() {
+    if (_loadingOlder || _conv == model::kNoConv)
+        return;
+    const model::Conversation &c = _ctx.store().conversation(_conv);
+    if (!c.hasMoreBefore)
+        return;
+    _loadingOlder              = true;
+    const Ts            before = c.messages.empty() ? 0 : c.messages.front().ts;
+    const ConvRef       conv   = _conv;
+    std::weak_ptr<char> alive  = _alive;
+    _ctx.backend.loadHistory(conv, before, [this, alive, conv](bool, const std::string &) {
+        if (alive.expired())
+            return;
+        _loadingOlder = false;
+        if (conv != _conv)
+            return;
+        // The page is in: the jump lands, or asks for the page before
+        // (a shared or linked message from long ago), or won't come.
+        if (!applyJump()) {
+            if (jumpNeedsOlder()) {
+                ++_jumpPages;
+                loadOlder();
+            } else {
+                _jumpTs = 0;
             }
-        });
-    }
+        }
+        updateState(); // an empty first page changes no messages
+        scheduleEdgeCheck();
+    });
+}
+
+bool MessageList::jumpNeedsOlder() const {
+    if (!_jumpTs || _conv == model::kNoConv || _jumpPages >= kJumpMaxPages)
+        return false;
+    const model::Conversation &c = _ctx.store().conversation(_conv);
+    return c.hasMoreBefore && (c.messages.empty() || _jumpTs < c.messages.front().ts);
 }
 
 // ── Layout, toolbar ─────────────────────────────────────────────────────────
@@ -1419,10 +1441,18 @@ bool MessageList::onEvent(ui::Event &e) {
         _selDragging = false;
         stopDragScroll();
         if (_selAnchor == _selFocus) { // a plain click: no selection; on code, copies it
+            const Ts at = _selAnchor.ts;
             clearSelection();
-            if (e.type == ui::EventType::PointerUp)
-                if (const std::string code = codeAt(e.windowPos); !code.empty())
+            if (e.type == ui::EventType::PointerUp) {
+                if (const std::string code = codeAt(e.windowPos); !code.empty()) {
                     copyCode(_ctx, code, window(), e.windowPos);
+                } else if (const int i = itemIndex(at); i >= 0) {
+                    // On a shared message's text: it opens, as a click on the
+                    // rest of its card does (AttachCard).
+                    if (auto *row = static_cast<MessageRow *>(_list->viewFor(i)))
+                        row->openQuoteAt(e.windowPos);
+                }
+            }
         }
         return true;
     case ui::EventType::KeyDown:
@@ -2115,20 +2145,26 @@ void MessageList::openCsvPreview(const model::File &f) {
 }
 
 void MessageList::jumpTo(Ts ts) {
-    _jumpTs = ts;
+    _jumpTs    = ts;
+    _jumpPages = 0;
     if (applyJump() || _conv == model::kNoConv)
         return;
-    // Not loaded: wait for the first page (checkEdges asks for it), or give
-    // up when messages are there already and it isn't among them. A thread's
-    // replies come in one load (Saved messages jumps to a reply).
+    // Not loaded. A thread's replies come in one load (Saved messages jumps
+    // to a reply): wait for it, or give up once they're in.
     if (threadMode()) {
         if (_ctx.store().replies(_conv, _root))
             _jumpTs = 0;
         return;
     }
+    // Older than what's loaded: page back to it (before the first page,
+    // checkEdges asks for that one). Else it isn't there.
     const model::Conversation &c = _ctx.store().conversation(_conv);
-    if (!c.messages.empty() || !c.hasMoreBefore)
-        _jumpTs = 0;
+    if (jumpNeedsOlder()) {
+        if (!c.messages.empty())
+            loadOlder();
+        return;
+    }
+    _jumpTs = 0;
 }
 
 bool MessageList::applyJump() {

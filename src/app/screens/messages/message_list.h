@@ -113,11 +113,13 @@ public:
 
     // Scroll so the message is visible (search hits, permalinks); `flash`
     // briefly highlights it.
-    void scrollToMessage(Ts ts, bool animated = true, bool flash = true);
-    // A search result: scrollToMessage, or — while the
-    // conversation's first page is still loading — once it is in. A target
-    // that page doesn't have is dropped; so is one the loaded list lacks.
-    void jumpTo(Ts ts);
+    void                 scrollToMessage(Ts ts, bool animated = true, bool flash = true);
+    // A search result, a permalink, a shared message: scrollToMessage, or
+    // once it is loaded — after the first page, or after as many older pages
+    // as it takes (at most kJumpMaxPages; Slack's history is paged from the
+    // newest). A target that never comes is dropped.
+    static constexpr int kJumpMaxPages = 30;
+    void                 jumpTo(Ts ts);
 
     // "Reply in thread" from the toolbar or menu (default: Context::openThread).
     std::function<void(ConvRef, Ts)> onReply;
@@ -262,6 +264,11 @@ private:
     void placeToolbar();
     void placeFileBar();
     bool applyJump();
+    // The page before the oldest loaded message (or the first), unless one
+    // is on its way; its answer moves a jump on.
+    void loadOlder();
+    // A jump whose target is older than what's loaded, with pages left.
+    bool jumpNeedsOlder() const;
 
 public:
     std::vector<Ts> threadRoots(Ts except) const; // for "Move to thread…"
@@ -335,6 +342,7 @@ private:
     uint32_t                   _bodyEpoch = 0;
     MessageRow                *_rows = nullptr; // every message row (live, kept, spare), linked
     bool                       _loadingOlder = false, _loadingThread = false, _waiting = false;
+    int                        _jumpPages = 0; // older pages a jump asked for
     // Selection.
     TextPos                    _selAnchor, _selFocus;
     bool                       _selDragging = false;
