@@ -954,7 +954,7 @@ msgstr "同僚もメッセージもとても多いようですね！まだ読み
 msgid "Loading your stuff..."
 msgstr "データを読み込み中..."
 
-#: src/app/screens/messages/message_list.cpp
+#: src/app/screens/messages/message_list.cpp src/app/screens/messages/rows.cpp
 msgid "Add reaction"
 msgstr "リアクションを追加"
 
