@@ -88,6 +88,16 @@ public:
         if (done)
             done(false, "not supported");
     }
+    // Channel details (Capabilities::channelEditing): the name (already
+    // normalised as a channel name), the topic, the description; archiving;
+    // adding / removing one person. On success the Store follows (an
+    // archived channel is no longer a member conversation). Default: fails.
+    virtual void renameChannel(ConvRef c, std::string name, Done done);
+    virtual void setChannelTopic(ConvRef c, std::string topic, Done done);
+    virtual void setChannelDescription(ConvRef c, std::string text, Done done);
+    virtual void archiveChannel(ConvRef c, Done done);
+    virtual void addToChannel(ConvRef c, UserRef u, Done done);
+    virtual void removeFromChannel(ConvRef c, UserRef u, Done done);
     // "Remind me": a saved item with a due time (epoch secs); 0 removes it.
     virtual void setReminder(ConvRef conv, Ts ts, int64_t dueSecs);
 
@@ -351,6 +361,7 @@ public:
         bool fileUpload       = false; // Forward re-uploads a message's files (else: links)
         bool removePreview    = false; // deleteAttachment: a link preview's "Remove preview"
         bool sidebarTheme     = false; // loadSidebarTheme: Settings' "Use my Slack theme"
+        bool channelEditing   = false; // "Channel details": rename, topic, description, members
     };
     virtual Capabilities capabilities() const { return {}; }
 

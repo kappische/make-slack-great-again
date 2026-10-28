@@ -48,6 +48,20 @@ ui::Popup *showCreateChannel(
 std::vector<BrowseList::Item> channelItems(const model::Store &store);
 std::vector<BrowseList::Item> peopleItems(const model::Store &store);
 
+// "Channel details" (Capabilities::channelEditing): the name, topic and
+// description to edit (Save sends what changed; the name as channelName()
+// makes it), "Add people…" (a people search: a pick invites them) and
+// "Archive channel…" (asked once more; archiving(conv) runs just before,
+// to step off it). onError hears what failed.
+ui::Popup *showChannelDetails(
+    screens::Context                        &ctx,
+    ui::Window                              &w,
+    Avatars                                 &avatars,
+    model::ConvRef                           conv,
+    std::function<void(const std::string &)> onError,
+    std::function<void(model::ConvRef)>      archiving = nullptr
+);
+
 // CreateChannelDialog::channelName().
 std::string channelName(std::string_view typed);
 

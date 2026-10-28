@@ -151,7 +151,8 @@ namespace {
 
 class MembersPopup final : public Popup {
 public:
-    MembersPopup(screens::Context &ctx, Avatars &avatars, uint32_t expected) : _ctx(ctx) {
+    MembersPopup(screens::Context &ctx, Avatars &avatars, uint32_t expected, model::ConvRef conv)
+        : _ctx(ctx), _conv(conv) {
         style().width(340).padding(8, 12, 8, 8).spacing(8);
         _title = add<Label>(tr("Members"), Font::SmallBold, C::TextMuted);
         _title->style().margins(4, 0, 4, 0);
@@ -169,6 +170,8 @@ public:
         _list->setOnContentSurface(true);
         _list->setOptions({8, false, false, false, false});
         _list->onActivated = [this](const std::string &id) { activate(_ctx.store().findUser(id)); };
+        // A channel's member, right clicked: "Remove from #name" (not me).
+        _list->onMenu      = [this](const std::string &id, PointF at) { memberMenu(id, at); };
         _message = add<Label>(tr("Loading members\xE2\x80\xA6"), Font::Control, C::TextMuted);
         _message->setAlign(text::LayoutOptions::Align::Center);
         fitRows(expected);
@@ -216,8 +219,9 @@ public:
         _message->setVisible(true);
         _message->setText(i18n::arg(tr("Couldn't load the members (%1)."), err));
     }
-    ui::TextEdit &search() { return *_search; }
-    size_t        shown() const { return _list->visibleCount(); }
+    ui::TextEdit                            &search() { return *_search; }
+    std::function<void(const std::string &)> onError; // a removal failed (the banner)
+    size_t                                   shown() const { return _list->visibleCount(); }
 
 private:
     // Whole rows, at most six; the message takes the list's place.
@@ -258,12 +262,41 @@ private:
         }
         return false;
     }
+    void memberMenu(const std::string &id, PointF at) {
+        const auto          &st = _ctx.store();
+        const model::UserRef u  = st.findUser(id);
+        if (u == model::kNoUser || u == st.me || _conv >= st.conversationCount() ||
+            st.conversation(_conv).isDirect() || !_ctx.backend.capabilities().channelEditing)
+            return;
+        Window *w = window();
+        if (!w)
+            return;
+        MenuItem rm;
+        rm.id     = 1;
+        rm.label  = i18n::arg(tr("Remove from #%1"), st.conversation(_conv).name);
+        rm.danger = true;
+        Menu::popupAt(*w, at, {rm}, [this, store = &st, uid = id](int) {
+            const model::ConvRef c = _conv;
+            close();
+            // The same workspace, the same person: refs are per Store.
+            const model::UserRef u = &_ctx.store() == store ? store->findUser(uid) : model::kNoUser;
+            if (u == model::kNoUser)
+                return;
+            _ctx.backend.removeFromChannel(
+                c, u, [onError = onError](bool ok, const std::string &err) {
+                    if (!ok && onError)
+                        onError(i18n::arg(tr("Couldn't remove them: %1"), err));
+                }
+            );
+        });
+    }
     void activate(model::UserRef u) {
         close();
         if (_ctx.messageUser && u != model::kNoUser) // the DM, or a teammate's page
             _ctx.messageUser(u);
     }
     screens::Context &_ctx;
+    model::ConvRef    _conv;
     Label            *_title = nullptr, *_message = nullptr;
     TextEdit         *_search = nullptr;
     BrowseList       *_list   = nullptr;
@@ -322,9 +355,23 @@ ConvHeader::ConvHeader(screens::Context &ctx, Avatars &avatars) : _ctx(ctx), _av
     _title->setHitTransparent(true);
     heading->add<View>()->style().flex(1);
 #else
-    _title = heading->add<Label>("", Font::HeaderTitle);
+    auto *titleBox = heading->add<Clickable>();
+    titleBox->setLook({C::None, C::None, C::None, C::None, 0});
+    titleBox->style().shrink = 1; // the name's width: the rest isn't a control
+    titleBox->style().row().items(Align::Center);
+    titleBox->setTooltip(tr("Channel details"));
+    _titleBox         = titleBox;
+    titleBox->onClick = [this] {
+        const auto &st = _ctx.store();
+        if (_conv != kNoConv && _conv < st.conversationCount() &&
+            !st.conversation(_conv).isDirect() && _ctx.backend.capabilities().channelEditing &&
+            onDetails)
+            onDetails(_conv);
+    };
+    _title = titleBox->add<Label>("", Font::HeaderTitle);
     _title->setMaxLines(1);
-    _title->style().flex(1).shrink = 1;
+    _title->style().shrink = 1;
+    heading->add<View>()->style().flex(1);
 #endif
     auto *members = actions->add<MembersButton>();
     members->style().margins(0, 0, 2, 0);
@@ -384,6 +431,11 @@ void ConvHeader::refresh() {
     const auto &c    = st.conversation(_conv);
     const auto  caps = _ctx.backend.capabilities();
     _title->setText(convTitle(st, _conv));
+    if (_titleBox) { // a DM's, a group DM's or a read-only workspace's name is just a name
+        const bool details = !c.isDirect() && caps.channelEditing;
+        _titleBox->setHitTransparent(!details);
+        _titleBox->setFocusable(details);
+    }
     _star->setVisible(true);
     _star->setStarred(c.starred);
     _huddle->setVisible(caps.huddles);
@@ -451,9 +503,13 @@ void ConvHeader::openMembers(RectF anchor) {
         return;
     const auto &c = _ctx.store().conversation(_conv);
     auto        p = std::make_unique<MembersPopup>(
-        _ctx, _avatars, c.kind == ConvKind::Group ? uint32_t(c.members.size()) : c.memberCount
+        _ctx,
+        _avatars,
+        c.kind == ConvKind::Group ? uint32_t(c.members.size()) : c.memberCount,
+        _conv
     );
-    auto *raw = p.get();
+    p->onError = onError;
+    auto *raw  = p.get();
     p->setAnchor(anchor, Popup::Place::Below);
     w->showPopup(std::move(p));
     raw->search().focus();

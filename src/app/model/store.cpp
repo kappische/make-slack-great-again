@@ -336,6 +336,7 @@ bool sameMeta(const Conversation &a, const Conversation &b) {
             c.id,
             c.name,
             c.topic,
+            c.purpose,
             c.kind,
             c.dmUser,
             c.members,

@@ -52,6 +52,7 @@ public:
         kRename, // group DMs, agent sessions
         kLeave,
         kStopSession,
+        kDetails, // channels (Capabilities::channelEditing): "Channel details…"
         // The workspace (no target)
         kWorkspaceAdmin = 40,
         kChangeIcon,

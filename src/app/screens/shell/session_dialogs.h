@@ -96,7 +96,9 @@ public:
     // A search field's keys for the list: Down / Up move the selection,
     // Enter opens it (true); any other key is the field's (false).
     bool        navKey(const ui::Event &e);
-    std::function<void(const std::string &id)> onActivated;
+    std::function<void(const std::string &id)>                onActivated;
+    // A row right clicked, at a window point (null: nothing happens).
+    std::function<void(const std::string &id, ui::PointF at)> onMenu;
 
     void paint(gfx::Painter &p) override;
 
