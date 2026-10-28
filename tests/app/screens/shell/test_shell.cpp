@@ -17,6 +17,7 @@
 #include "support/test.h"
 #include "base/file.h"
 #include "base/time.h"
+#include "base/utf8.h"
 #include "gfx/icons_generated.h"
 #include "plat/audio.h"
 #include "plat/testing.h"
@@ -375,17 +376,166 @@ TEST("sidebar: starring moves a row") {
     Harness       h;
     const ConvRef eng   = h.conv("C0ENG");
     auto          order = h.sh->sidebar().order();
-    // Starred (general, design) first, then channels, then DMs.
+    // Starred (design, general: A–Z) first, then channels (engineering
+    // first), then DMs.
     REQUIRE(order.size() == h.store.conversationCount());
-    CHECK(order[0] == h.conv("C0GENERAL"));
-    CHECK(order[1] == h.conv("C0DESIGN"));
+    CHECK(order[0] == h.conv("C0DESIGN"));
+    CHECK(order[1] == h.conv("C0GENERAL"));
     CHECK(order[2] == eng);
 
     h.backend.setStarred(eng, true);
     pump();
     order = h.sh->sidebar().order();
-    CHECK(order[2] == eng); // now the last starred row
+    CHECK(order[1] == eng); // starred now, between design and general
     CHECK(h.store.conversation(eng).starred);
+}
+
+namespace {
+// Past the sidebar's re-sort delay (Sidebar::kReorderMs).
+void settle() {
+    for (const double until = app().nowMs() + shell::Sidebar::kReorderMs + 200;
+         app().nowMs() < until;)
+        app().pump(5);
+}
+
+// The rows of one sidebar section, in order (its conversations' kind).
+std::vector<ConvRef> sectionRows(Harness &h, bool dms) {
+    std::vector<ConvRef> out;
+    for (ConvRef c : h.sh->sidebar().order()) {
+        const model::Conversation &cv = h.store.conversation(c);
+        const bool app = cv.kind == model::ConvKind::Dm && cv.dmUser != model::kNoUser &&
+                         h.store.user(cv.dmUser).bot;
+        if (!cv.starred && !app && cv.isDirect() == dms)
+            out.push_back(c);
+    }
+    return out;
+}
+
+ui::View *headerTitled(ui::View *v, std::string_view title) {
+    for (size_t i = 0; i < v->childCount(); ++i) {
+        ui::View *c = v->child(i);
+        if (c->accessibleName() == title && v->role() == ui::Role::Button)
+            return v;
+        if (ui::View *f = headerTitled(c, title))
+            return f;
+    }
+    return nullptr;
+}
+} // namespace
+
+TEST("sidebar: channels A–Z and direct messages by recent activity, as in Slack") {
+    Harness              h;
+    std::vector<ConvRef> ch = sectionRows(h, false);
+    REQUIRE(ch.size() >= 3);
+    for (size_t i = 1; i < ch.size(); ++i)
+        CHECK(
+            utf8::foldCase(h.store.displayName(ch[i - 1])) <=
+            utf8::foldCase(h.store.displayName(ch[i]))
+        );
+    std::vector<ConvRef> dm = sectionRows(h, true);
+    REQUIRE(dm.size() >= 3);
+    for (size_t i = 1; i < dm.size(); ++i)
+        CHECK(
+            shell::Sidebar::activityOf(h.store.conversation(dm[i - 1])) >=
+            shell::Sidebar::activityOf(h.store.conversation(dm[i]))
+        );
+
+    // A new message in the last DM moves it to the top (once, after the burst).
+    const ConvRef  last = dm.back();
+    model::Message m;
+    m.user             = h.store.conversation(last).dmUser;
+    m.ts               = shell::Sidebar::activityOf(h.store.conversation(dm.front())) + 1000000;
+    m.text             = "hello again";
+    const int rebuilds = h.sh->sidebar().rebuildCount();
+    h.store.addMessage(last, std::move(m));
+    pump();
+    CHECK(sectionRows(h, true).back() == last); // not per message: after the burst
+    settle();
+    CHECK(sectionRows(h, true).front() == last);
+    CHECK(h.sh->sidebar().rebuildCount() == rebuilds + 1);
+}
+
+TEST("sidebar: re-sorting rebuilds only when a row is out of place, once per burst") {
+    Harness                    h;
+    shell::Sidebar            &sb = h.sh->sidebar();
+    const std::vector<ConvRef> dm = sectionRows(h, true);
+    const std::vector<ConvRef> ch = sectionRows(h, false);
+    REQUIRE(dm.size() >= 3);
+    REQUIRE(ch.size() >= 2);
+    const int rebuilds = sb.rebuildCount();
+    auto      say      = [&](ConvRef c, int64_t ts) {
+        model::Message m;
+        m.user = h.store.conversation(c).dmUser;
+        m.ts   = ts;
+        m.text = "hi";
+        h.store.addMessage(c, std::move(m));
+    };
+    // The top DM again, a channel sorted A–Z: nothing moves, nothing rebuilds.
+    const model::Ts top = shell::Sidebar::activityOf(h.store.conversation(dm.front()));
+    say(dm.front(), top + 1000000);
+    say(ch.back(), top + 2000000);
+    settle();
+    CHECK(sb.rebuildCount() == rebuilds);
+    // Two DMs further down, one after the other: one rebuild for both.
+    say(dm[dm.size() - 1], top + 3000000);
+    say(dm[dm.size() - 2], top + 4000000);
+    settle();
+    CHECK(sb.rebuildCount() == rebuilds + 1);
+    const std::vector<ConvRef> now = sectionRows(h, true);
+    CHECK(now[0] == dm[dm.size() - 2]);
+    CHECK(now[1] == dm[dm.size() - 1]);
+}
+
+TEST("sidebar: a renamed channel moves to its place in an A–Z section") {
+    Harness                    h;
+    const std::vector<ConvRef> ch = sectionRows(h, false);
+    REQUIRE(ch.size() >= 2);
+    const model::Conversation &old = h.store.conversation(ch.front());
+    model::Conversation        c;
+    c.id       = old.id;
+    c.kind     = old.kind;
+    c.member   = true;
+    c.latest   = old.latest;
+    c.lastRead = old.lastRead;
+    c.name     = "zzz-last";
+    h.store.addConversation(std::move(c)); // a roster refresh: Meta, not Roster
+    settle();
+    CHECK(sectionRows(h, false).back() == ch.front());
+}
+
+TEST("sidebar: a section header's menu sorts it, and the choice is saved") {
+    Harness   h;
+    ui::View *header = headerTitled(&h.sh->sidebar(), "Channels");
+    REQUIRE(header != nullptr);
+    ui::Event       rc{ui::EventType::ContextMenu};
+    const ui::RectF r = header->windowRect();
+    rc.windowPos      = {r.x + 20, r.y + r.h / 2};
+    header->onEvent(rc);
+    pump();
+    auto *menu = static_cast<ui::Menu *>(h.win->topPopup());
+    REQUIRE(menu != nullptr);
+    const auto &items = menu->items();
+    REQUIRE(items.size() == 3);
+    CHECK(items[0].header);
+    CHECK_STR(items[1].label, "Alphabetically");
+    CHECK(items[1].checked);
+    CHECK_STR(items[2].label, "By most recent activity");
+    CHECK_FALSE(items[2].checked);
+    menu->setCurrent(2);
+    ui::Event enter{ui::EventType::KeyDown};
+    enter.key = plat::Key::Enter;
+    menu->onEvent(enter);
+    pump();
+    CHECK(h.settings.sortChannels == 1);
+    CHECK(h.sh->sidebar().filters().sort[1] == shell::Sidebar::Sort::Activity);
+    const std::vector<ConvRef> ch = sectionRows(h, false);
+    for (size_t i = 1; i < ch.size(); ++i)
+        CHECK(
+            shell::Sidebar::activityOf(h.store.conversation(ch[i - 1])) >=
+            shell::Sidebar::activityOf(h.store.conversation(ch[i]))
+        );
+    CHECK(h.settings.sortDms == 1); // the other sections keep theirs
+    CHECK(h.settings.sortStarred == 0);
 }
 
 // ── Drafts ──────────────────────────────────────────────────────────────────
@@ -545,6 +695,8 @@ TEST("settings: round trip through the file") {
     s.theme       = ui::ThemeMode::Dark;
     s.threadWidth = 500;
     s.setZenMode("claude-code:local", true);
+    s.sortChannels      = 1;
+    s.sortDms           = 0;
     const std::string d = base::test::makeTempDir("msga_shell_");
     REQUIRE(!d.empty());
     const std::string path = d + "/msga/settings.json";
@@ -556,11 +708,14 @@ TEST("settings: round trip through the file") {
     CHECK(l.threadWidth == 500);
     CHECK(l.zenMode("claude-code:local")); // per workspace
     CHECK_FALSE(l.zenMode("slack:T0OTHER"));
+    CHECK((l.sortChannels == 1 && l.sortDms == 0 && l.sortStarred == 0 && l.sortApps == 0));
     // Earlier builds' one global toggle goes to the Claude Code workspace.
     REQUIRE(file::writeAtomic(d + "/old.json", R"({"zenMode":true})"));
     CHECK(shell::Settings::load(d + "/old.json").zenMode("claude-code:local"));
     const shell::Settings missing = shell::Settings::load(std::string(d) + "/nope.json");
     CHECK(missing.width == 1200);
+    // A file from before the sort menu: Slack's defaults (A–Z, DMs by activity).
+    CHECK((missing.sortChannels == 0 && missing.sortDms == 1 && missing.sortStarred == 0));
 }
 
 // ── Context menus ───────────────────────────────────────────────────────────

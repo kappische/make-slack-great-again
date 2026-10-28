@@ -251,7 +251,7 @@ unpreparedFilter(const Store &store, std::string_view query, const std::vector<C
             continue;
         if (const std::optional<double> s = unpreparedScore(q, name))
             scored.emplace_back(
-                *s + (store.conversation(c).kind == ConvKind::Group ? -0.5 : 0.0), c
+                *s + (store.conversation(c).kind == ConvKind::Group && !q.empty() ? -0.5 : 0.0), c
             );
     }
     std::stable_sort(scored.begin(), scored.end(), [](const auto &a, const auto &b) {

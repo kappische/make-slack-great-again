@@ -6,6 +6,7 @@
 #include "base/i18n.h"
 #include "base/str.h"
 #include "base/time.h"
+#include "base/utf8.h"
 #include "gfx/icons_generated.h"
 #include "screens/shell/context_menus.h"
 #include "screens/shell/header.h"
@@ -100,12 +101,12 @@ public:
     bool   unread = false; // followed threads with unread replies (Store::unreadThreads)
 };
 
-// The "+" on the Direct messages / Sessions / Team header: shown while the
-// header is hovered. `at` is where the press was (the session menu
-// opens at the cursor); a right click on it does the same as a left one.
+// The "+" on the Direct messages / Sessions / Team header, and the "⋯" (sort
+// menu) on the sortable ones: shown while the header is hovered. `at` is where the press was (the
+// session menu opens at the cursor); a right click on it does the same as a left one.
 class HeaderPlus final : public Clickable {
 public:
-    explicit HeaderPlus(const char *tip) {
+    explicit HeaderPlus(const char *tip, Icon icon = Icon::Plus) : glyph(icon) {
         style().size(14, 14).noShrink();
         setLook({C::None, C::None, C::None, C::None, 0});
         setTooltip(tip);
@@ -121,8 +122,9 @@ public:
         return Clickable::onEvent(e);
     }
     void paint(gfx::Painter &p) override {
-        gfx::drawIcon(p, Icon::Plus, bounds(), color(C::SidebarTextMuted));
+        gfx::drawIcon(p, glyph, bounds(), color(C::SidebarTextMuted));
     }
+    Icon                  glyph;
     PointF                at;
     std::function<void()> onRightClick;
 };
@@ -261,8 +263,16 @@ public:
         // Direct messages: "+" → the browse dialog's People tab; Sessions:
         // find or create one (a right click too); Team: add a teammate.
         const bool agents = sb._ctx.backend.capabilities().agentSessions;
-        if (k == 2 || k == 4) {
+        if (sb.sorted(k) || k == 2 || k == 4)
             add<View>()->style().flex(1);
+        // Sortable sections: "⋯" → the sort menu (a right click on the header too).
+        if (sb.sorted(k)) {
+            more = add<HeaderPlus>(tr("Section options"), Icon::MoreHorizontal);
+            more->style().margins(0, 0, k == 2 ? 8 : 0, 0);
+            more->setVisible(false);
+            more->onClick = [this] { sidebar.showSortMenu(kind, more->windowRect()); };
+        }
+        if (k == 2 || k == 4) {
             plus = add<HeaderPlus>(
                 k == 4   ? tr("Add teammate")
                 : agents ? tr("Add sessions")
@@ -306,12 +316,18 @@ public:
             stale = false;
             refreshLook();
         }
+        if (e.type == EventType::ContextMenu && more) {
+            sidebar.showSortMenu(kind, {e.windowPos.x, e.windowPos.y, 0, 0});
+            return true;
+        }
         return HoverRow::onEvent(e);
     }
     void refreshLook() override {
         setLook({C::None, lit() ? C::SidebarHover : C::None, C::SidebarHover, C::None, 0});
         if (plus)
             plus->setVisible(lit());
+        if (more)
+            more->setVisible(lit());
         update();
     }
     void paint(gfx::Painter &p) override {
@@ -328,7 +344,7 @@ public:
     Icon        icon;
     std::string title;
     Label      *label = nullptr;
-    HeaderPlus *plus  = nullptr;
+    HeaderPlus *plus = nullptr, *more = nullptr;
     std::vector<ConvRow *> rows;
     std::vector<View *>    extras; // "N more channels", "Add channels"
     bool                   collapsed = false, unread = false, stale = false;
@@ -666,6 +682,8 @@ Sidebar::Sidebar(screens::Context &ctx, Avatars &avatars) : _ctx(ctx), _avatars(
             if (ch.thread == 0 && ch.conv < _ctx.store().conversationCount() && !rowFor(ch.conv) &&
                 _ctx.store().conversation(ch.conv).member && relevant(ch.conv))
                 rebuildSoon();
+            else if (ConvRow *r = ch.thread == 0 ? rowFor(ch.conv) : nullptr; r && outOfOrder(*r))
+                reorderSoon(ch.conv == _selected); // a new message moves it up its section
             [[fallthrough]];
         case model::ChangeKind::Update:
         case model::ChangeKind::Remove:
@@ -694,7 +712,9 @@ Sidebar::Sidebar(screens::Context &ctx, Avatars &avatars) : _ctx(ctx), _avatars(
                 _filters.unreadsOnly && ch.conv != _selected && !cv.starred &&
                 (r ? r->unread != paintsUnread(cv) : cv.member && paintsUnread(cv));
             if (!r != !cv.member || (r && (r->section->kind == 0) != cv.starred) || filterFlip)
-                rebuildSoon(false); // once per burst; the list stays where it was scrolled
+                rebuildSoon(false);       // once per burst; the list stays where it was scrolled
+            else if (r && outOfOrder(*r)) // newer activity, or renamed
+                reorderSoon(ch.conv == _selected);
             else {
                 refresh(ch.conv);
                 sectionsSoon(); // the headers, its sessions' teammate: once per burst
@@ -710,7 +730,7 @@ Sidebar::Sidebar(screens::Context &ctx, Avatars &avatars) : _ctx(ctx), _avatars(
 
 Sidebar::~Sidebar() {
     _ctx.store.unobserve(_observer);
-    for (plat::TimerId t : {_rebuildTimer, _usersTimer, _sectionsTimer})
+    for (plat::TimerId t : {_rebuildTimer, _usersTimer, _sectionsTimer, _reorderTimer})
         if (t)
             _ctx.app.platform().cancelTimer(t);
 }
@@ -774,10 +794,42 @@ bool Sidebar::relevant(ConvRef ref) const {
     const auto v = _visited.find(c.id);
     if (v != _visited.end() && v->second >= cutoff)
         return true;
-    const model::Ts activity = std::max(c.latest, c.lastRead);
+    const model::Ts activity = activityOf(c);
     if (activity)
         return tsSecs(activity) >= cutoff;
     return !c.isDirect();
+}
+
+bool Sidebar::sorted(int kind) const {
+    return kind >= 0 && kind < 4 && !_ctx.backend.capabilities().agentSessions;
+}
+
+model::Ts Sidebar::activityOf(const model::Conversation &c) {
+    return std::max(c.latest, c.lastRead);
+}
+
+void Sidebar::showSortMenu(int kind, RectF anchor) {
+    Window *w = window();
+    if (!w || !sorted(kind))
+        return;
+    const Sort            now = _filters.sort[kind];
+    std::vector<MenuItem> items;
+    items.push_back(MenuItem::headerItem(tr("Sort")));
+    MenuItem az;
+    az.id      = int(Sort::Alphabetical) + 1;
+    az.label   = tr("Alphabetically");
+    az.checked = now == Sort::Alphabetical;
+    items.push_back(az);
+    MenuItem recent;
+    recent.id      = int(Sort::Activity) + 1;
+    recent.label   = tr("By most recent activity");
+    recent.checked = now == Sort::Activity;
+    items.push_back(recent);
+    Menu::show(*w, anchor, std::move(items), [this, kind](int id) {
+        const Sort s = Sort(id - 1);
+        if (s != _filters.sort[kind] && onSortChanged)
+            onSortChanged(kind, s);
+    });
 }
 
 void Sidebar::rebuild() {
@@ -822,7 +874,7 @@ void Sidebar::rebuild() {
     showNavSelection();
 
     // Starred first (any kind), then channels, direct messages, agents &
-    // apps; fixture (= server) order inside each.
+    // apps; inside each as its menu says (below).
     std::vector<ConvRef> lists[4], hiddenCh;
     const auto           listed = [&](ConvRef c) {
         return !_filters.unreadsOnly || c == _selected || paintsUnread(store.conversation(c));
@@ -864,6 +916,29 @@ void Sidebar::rebuild() {
     _hiddenChannels = _showAllChannels ? 0 : int(hiddenCh.size());
     if (_showAllChannels)
         lists[1].insert(lists[1].end(), hiddenCh.begin(), hiddenCh.end());
+    // Each section as its menu says (the names folded once per rebuild);
+    // ties and unknown activity fall back on the name, then the server order.
+    for (int s = 0; s < 4; ++s) {
+        std::vector<ConvRef> &l = lists[s];
+        if (!sorted(s) || l.size() < 2)
+            continue;
+        std::vector<std::pair<std::string, ConvRef>> keyed;
+        keyed.reserve(l.size());
+        for (ConvRef c : l)
+            keyed.emplace_back(utf8::foldCase(store.displayName(c)), c);
+        const bool byActivity = _filters.sort[s] == Sort::Activity;
+        std::stable_sort(keyed.begin(), keyed.end(), [&](const auto &a, const auto &b) {
+            if (byActivity) {
+                const model::Ts x = activityOf(store.conversation(a.second));
+                const model::Ts y = activityOf(store.conversation(b.second));
+                if (x != y)
+                    return x > y;
+            }
+            return a.first < b.first;
+        });
+        for (size_t i = 0; i < l.size(); ++i)
+            l[i] = keyed[i].second;
+    }
     const bool agents = caps.agentSessions;
     _team = agents ? _ctx.backend.agentRoles() : std::vector<model::Backend::AgentRole>{};
     struct Def {
@@ -1026,6 +1101,8 @@ void Sidebar::usersSoon() {
         refreshTeammates();
         refreshAll();
         _footer->refresh();
+        if (anyOutOfOrder()) // a person renamed: their DM and group DMs move
+            reorderSoon(false);
     });
 }
 
@@ -1199,6 +1276,60 @@ bool Sidebar::scheduledShown() const {
 
 const ui::View *Sidebar::rowView(ConvRef conv) const {
     return rowFor(conv);
+}
+
+bool Sidebar::sortsBefore(int kind, ConvRef a, ConvRef b) const {
+    const model::Store &st = _ctx.store();
+    if (_filters.sort[kind] == Sort::Activity) {
+        const model::Ts x = activityOf(st.conversation(a)), y = activityOf(st.conversation(b));
+        if (x != y)
+            return x > y;
+    }
+    return utf8::foldCase(st.displayName(a)) < utf8::foldCase(st.displayName(b));
+}
+
+bool Sidebar::outOfOrder(const ConvRow &r) const {
+    // Against its neighbours only: a new message (activity), a rename (A–Z).
+    const SectionHeader *h = r.section;
+    if (!h || !sorted(h->kind))
+        return false;
+    const auto it = std::find(h->rows.begin(), h->rows.end(), &r);
+    if (it == h->rows.end())
+        return false;
+    return (it != h->rows.begin() && sortsBefore(h->kind, r.conv, (*(it - 1))->conv)) ||
+           (it + 1 != h->rows.end() && sortsBefore(h->kind, (*(it + 1))->conv, r.conv));
+}
+
+bool Sidebar::anyOutOfOrder() const {
+    for (const SectionHeader *h : _sections)
+        if (sorted(h->kind))
+            for (size_t i = 1; i < h->rows.size(); ++i)
+                if (sortsBefore(h->kind, h->rows[i]->conv, h->rows[i - 1]->conv))
+                    return true;
+    return false;
+}
+
+void Sidebar::reorderSoon(bool reveal) {
+    // Not per message: a busy section would rebuild on every one. Once a
+    // burst has settled, and never while a row is held down (the rebuild
+    // would take the click with it).
+    _revealOnReorder = _revealOnReorder || reveal;
+    if (_reorderTimer)
+        return;
+    std::weak_ptr<int> alive = _alive;
+    _reorderTimer            = _ctx.app.platform().addTimer(kReorderMs, false, [this, alive] {
+        if (alive.expired())
+            return;
+        _reorderTimer = 0;
+        if (const Window *w = window(); w && w->capture() && isAncestorOf(w->capture())) {
+            reorderSoon(false);
+            return;
+        }
+        rebuild();
+        if (ConvRow *r = rowFor(_selected); r && std::exchange(_revealOnReorder, false))
+            _scroll->ensureVisible(r, 8);
+        _revealOnReorder = false;
+    });
 }
 
 ConvRow *Sidebar::rowFor(ConvRef conv) const {

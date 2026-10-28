@@ -61,6 +61,9 @@ struct Settings {
     // (model::Backend::NamesMode).
     int                      names        = 0;
     bool                     showAgentsApps = true, unreadsOnly = false;
+    // The sidebar sections' sorts (Sidebar::Sort: 0 A–Z, 1 most recent
+    // activity), chosen in each header's menu.
+    int                      sortStarred = 0, sortChannels = 0, sortDms = 1, sortApps = 0;
     bool                     animateEmoji = true, animateMedia = true;
     bool                     customTrayIcon = false;
     // Claude Code workspaces: the footer's zen toggle (hide the tool-call
