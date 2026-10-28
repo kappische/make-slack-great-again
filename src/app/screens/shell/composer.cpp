@@ -714,6 +714,37 @@ GlyphButton *Composer::button(shortcuts::Id id) const {
     return nullptr;
 }
 
+// Without me, people who are gone, or system lines ("X joined", a topic
+// change: channel_* / group_* subtypes), which aren't anyone talking.
+std::vector<model::UserRef>
+recentAuthors(const model::Store &st, model::ConvRef conv, model::Ts thread) {
+    std::vector<model::UserRef> out;
+    if (conv == model::kNoConv)
+        return out;
+    auto add = [&](const model::Message &m) {
+        const model::UserRef u = m.user;
+        if (out.size() >= 30 || u == model::kNoUser || u == st.me || u >= st.userCount() ||
+            st.user(u).placeholder || st.user(u).deleted ||
+            str::startsWith(m.subtype(), "channel_") || str::startsWith(m.subtype(), "group_") ||
+            std::find(out.begin(), out.end(), u) != out.end())
+            return;
+        out.push_back(u);
+    };
+    if (thread) {
+        if (const std::vector<model::Message> *r = st.replies(conv, thread))
+            for (auto it = r->rbegin(); it != r->rend(); ++it)
+                add(*it);
+        // replies() holds the replies only; the starter may be older than
+        // the loaded page, so it is looked up on its own.
+        if (const model::Message *root = st.findMessage(conv, thread))
+            add(*root);
+    }
+    const auto &msgs = st.conversation(conv).messages;
+    for (auto it = msgs.rbegin(); it != msgs.rend() && out.size() < 30; ++it)
+        add(*it);
+    return out;
+}
+
 void Composer::refreshTips() {
     // The send key follows the Ctrl+Enter option; the GIF tip whether a
     // GIPHY key is set.
@@ -2201,7 +2232,17 @@ void Composer::computePickList() {
         }
         if (_folded.size() < st.userCount())
             _folded.resize(st.userCount());
-        for (model::UserRef u = 0; u < st.userCount() && added < 50; ++u) {
+        // Who is talking here comes first, the latest first (the thread's
+        // people before the channel's), as in Slack; then everyone else.
+        // The recent ones are few (≤ 30), so the roster walk that follows
+        // skips them with a find, and stops at 50 like before.
+        const std::vector<model::UserRef> recent = recentAuthors(st, _key.conv, _key.thread);
+        const size_t                      total  = recent.size() + st.userCount();
+        for (size_t i = 0; i < total && added < 50; ++i) {
+            const model::UserRef u =
+                i < recent.size() ? recent[i] : model::UserRef(i - recent.size());
+            if (i >= recent.size() && std::find(recent.begin(), recent.end(), u) != recent.end())
+                continue;
             const model::User &user = st.user(u);
             if (user.placeholder || user.deleted)
                 continue;
@@ -2243,6 +2284,29 @@ void Composer::computePickList() {
             it.presence = user.dnd ? 3 : (user.active || user.bot) ? 1 : 2;
             items.push_back(std::move(it));
             ++added;
+        }
+        // User groups (@design-team): Slack notifies their members. At most
+        // 10, so a bare "@" in a big org doesn't build hundreds of rows.
+        int groups = 0;
+        for (const model::Store::Usergroup &g : st.usergroups()) {
+            if (groups >= 10)
+                break;
+            if (g.handle.empty())
+                continue;
+            const std::string handle = "@" + g.handle;
+            if (!query.empty() && !utf8::containsFolded(handle, query) &&
+                !utf8::containsFolded(g.name, query))
+                continue;
+            PickList::Item it;
+            it.kind     = PickList::Item::Kind::Group;
+            it.title    = handle;
+            it.display  = handle;
+            // The handle as the label, so a reader without the group
+            // (another org, groups not loaded yet) still sees "@handle".
+            it.insert   = str::concat({"<!subteam^", g.id, "|", handle, ">"});
+            it.subtitle = g.name;
+            items.push_back(std::move(it));
+            ++groups;
         }
     } else if (trig == '/' && start == 0) {
         // Slash commands only at the very start of the message; a bare
@@ -2458,6 +2522,13 @@ void loadMrkdwnAs(TextEdit &edit, const model::Store &store, std::string_view te
             );
         } else if (head == "!here" || head == "!channel" || head == "!everyone") {
             display = str::concat({"@", head.substr(1)});
+        } else if (str::startsWith(head, "!subteam^")) { // a user group: "@handle"
+            const std::string_view         id = head.substr(9);
+            const model::Store::Usergroup *g  = store.findUsergroup(id);
+            const std::string_view name = !lab.empty()              ? lab
+                                          : g && !g->handle.empty() ? std::string_view(g->handle)
+                                                                    : id;
+            display = str::concat({"@", name.substr(!name.empty() && name[0] == '@')});
         } else if (giphy(head)) {
             display = lab.empty() ? std::string(tr("GIF")) : i18n::arg(tr("GIF \xC2\xB7 %1"), lab);
         }

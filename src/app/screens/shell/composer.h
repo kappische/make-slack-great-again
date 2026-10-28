@@ -53,9 +53,14 @@ struct EmojiCompletion {
     bool        custom = false; // inserted as :name: (no Unicode form)
 };
 std::vector<EmojiCompletion> emojiCompletions(const model::Store &store, std::string_view query);
+// Who @ completion puts first: the authors of the latest messages, newest
+// first, each once (at most 30); in a thread its replies and its starter
+// before the channel's.
+std::vector<model::UserRef>
+recentAuthors(const model::Store &store, model::ConvRef conv, model::Ts thread);
 // The other way, for editing a sent message: the
-// mrkdwn stays literal text, except <@U…>, <#C…|name>, <!here> and GIPHY
-// links, which become pills; &amp; &lt; &gt; are shown decoded.
+// mrkdwn stays literal text, except <@U…>, <#C…|name>, <!here>,
+// <!subteam^S…> and GIPHY links, which become pills; &amp; &lt; &gt; are shown decoded.
 void        loadMrkdwn(ui::TextEdit &edit, const model::Store &store, std::string_view mrkdwn);
 // The formatting the editors are typed in (Settings → Appearance): Slack's
 // (*bold*, _italic_), or Markdown's (**bold**, *italic*). Either way what

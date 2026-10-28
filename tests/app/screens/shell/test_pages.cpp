@@ -818,7 +818,8 @@ TEST("composer: the @ list folds each user once and filters in the open list") {
         CHECK(c.pickList() == list);
     }
     CHECK(c.mentionFolds() == folds);
-    // The rows are what a fold-per-user filter gives, in roster order.
+    // The rows are what a fold-per-user filter gives (the people talking
+    // here first, then the roster: the order is the composer test's).
     std::vector<std::string> want;
     for (UserRef u = 0; u < h.store.userCount() && want.size() < 50; ++u) {
         const User &user = h.store.user(u);
@@ -830,8 +831,12 @@ TEST("composer: the @ list folds each user once and filters in the open list") {
     }
     REQUIRE(!want.empty());
     REQUIRE(list->count() == want.size()); // "mir" matches no @channel alias
+    std::vector<std::string> got;
     for (size_t i = 0; i < want.size(); ++i)
-        CHECK_STR(list->item(i).title, want[i]);
+        got.push_back(list->item(i).title);
+    std::sort(got.begin(), got.end());
+    std::sort(want.begin(), want.end());
+    CHECK(got == want);
     // Asking again with nothing changed neither looks nor rebuilds the rows.
     const int builds = list->builds();
     c.updatePickList();
